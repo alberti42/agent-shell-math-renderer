@@ -64,6 +64,7 @@
 (require 'svg)
 
 (declare-function agent-shell-markdown--in-avoid-range-p "agent-shell-markdown")
+(declare-function agent-shell-markdown--sort-ranges "agent-shell-markdown")
 (declare-function agent-shell--cache-dir "agent-shell")
 
 (defface agent-shell-math-renderer
@@ -1094,6 +1095,54 @@ change is picked up just like a color change."
           #'agent-shell-math-renderer--maybe-refresh)
 (add-hook 'enable-theme-functions #'agent-shell-math-renderer--maybe-refresh)
 (add-hook 'text-scale-mode-hook #'agent-shell-math-renderer--maybe-refresh)
+
+;;; Hook integration with agent-shell-markdown
+
+(defun agent-shell-math-renderer--render-hook (context)
+  "Hook function for `agent-shell-markdown-render-functions'.
+Detect and render display-math blocks, inline math, and fenced
+math blocks in the current (narrowed) buffer.  CONTEXT is an
+alist with `:source-blocks'.  Returns an alist with `:watermark'
+when an unclosed delimiter needs streaming protection, nil
+otherwise."
+  (when agent-shell-math-renderer-enabled
+    (let* ((source-blocks (map-elt context :source-blocks))
+           (source-ranges
+            (agent-shell-markdown--sort-ranges
+             (mapcar (lambda (sb)
+                       (cons (map-nested-elt sb '(:block :start))
+                             (map-nested-elt sb '(:block :end))))
+                     source-blocks)))
+           (watermark nil))
+      (agent-shell-math-renderer--style-blocks :avoid-ranges source-ranges)
+      (let ((open-block (seq-find (lambda (b) (zerop (plist-get b :close)))
+                                  (agent-shell-math-renderer--blocks source-ranges))))
+        (when open-block
+          (setq watermark (plist-get open-block :start))
+          (put-text-property (plist-get open-block :start) (plist-get open-block :end)
+                             'agent-shell-markdown-frozen t)))
+      (when agent-shell-math-renderer-render-inline
+        (let ((math-ranges (agent-shell-markdown--sort-ranges
+                            source-ranges
+                            (agent-shell-math-renderer--block-ranges source-ranges))))
+          (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
+      (dolist (sb source-blocks)
+        (when-let* ((lang (map-elt sb :language))
+                    ((agent-shell-math-renderer--fence-language-p lang))
+                    ((map-elt sb :complete))
+                    (start (map-nested-elt sb '(:block :start)))
+                    (end (map-nested-elt sb '(:block :end)))
+                    ((not (get-text-property start 'agent-shell-markdown-frozen)))
+                    (body (map-elt sb :body))
+                    (latex (string-trim body))
+                    ((not (string-empty-p latex))))
+          (agent-shell-math-renderer--apply-region
+           (current-buffer) start end latex)))
+      (when watermark
+        (list (cons :watermark watermark))))))
+
+(add-hook 'agent-shell-markdown-render-functions
+          #'agent-shell-math-renderer--render-hook)
 
 (provide 'agent-shell-math-renderer)
 

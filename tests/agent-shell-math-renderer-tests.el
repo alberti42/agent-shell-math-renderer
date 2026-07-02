@@ -16,13 +16,12 @@
              (expand-file-name ".." (file-name-directory
                                      (or load-file-name buffer-file-name))))
 
-;; Loads `agent-shell-markdown', which in turn requires
-;; `agent-shell-math-renderer'.  The math passes run through the public
-;; `agent-shell-markdown-convert', so the tests exercise the renderer
-;; integration rather than the module in isolation.
-(load-file (expand-file-name "../agent-shell-markdown.el"
-                             (file-name-directory
-                              (or load-file-name buffer-file-name))))
+;; Loads `agent-shell-markdown' (from load path) and our renderer.
+;; The math passes run through `agent-shell-markdown-convert', so the
+;; tests exercise the hook integration rather than the module in
+;; isolation.
+(require 'agent-shell-markdown)
+(require 'agent-shell-math-renderer)
 
 (defmacro agent-shell-math-renderer-tests--enabled (&rest body)
   "Evaluate BODY with math rendering enabled.
