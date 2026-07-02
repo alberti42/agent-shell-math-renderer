@@ -590,10 +590,13 @@ inline math) rather than as a display equation; it is stashed in
 `agent-shell-math-renderer-inline' so a later refresh re-renders in
 the same style.
 
-Shared by the delimiter pass (`--style-math-blocks'), the inline
-pass (`--style-inline-math'), and the fenced-block path
-\(`agent-shell-markdown--style-source-blocks', for ```math /
-```latex)."
+Shared by the delimiter pass (`agent-shell-math-renderer--style-blocks'),
+the inline pass (`agent-shell-math-renderer--style-inline'), and the
+fenced-block path in `agent-shell-math-renderer--render-hook' (for ```math /
+```latex / ```tex fences).  For a fenced block START..END span the whole
+block, fence lines included; freezing the body is what makes upstream's
+later `agent-shell-markdown--style-source-blocks' skip it (it honors
+`agent-shell-markdown-frozen')."
   (with-current-buffer buffer
     (setq agent-shell-math-renderer--present t)
     (add-face-text-property start end 'agent-shell-math-renderer)
