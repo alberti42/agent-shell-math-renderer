@@ -49,6 +49,18 @@ The package hooks into `agent-shell` through its public
 `agent-shell-markdown-render-functions` extension point — no patching, no
 advice.
 
+### `use-package` + `:vc` (Emacs 30+)
+
+The built-in way — no `straight`, no manual `package-vc-install`:
+
+```elisp
+(use-package agent-shell-math-renderer
+  :vc (:url "https://github.com/alberti42/agent-shell-math-renderer" :rev :newest)
+  :after agent-shell
+  :config
+  (setq agent-shell-math-renderer-enabled t))
+```
+
 ### `use-package` + `straight`
 
 ```elisp
@@ -61,7 +73,9 @@ advice.
   (setq agent-shell-math-renderer-enabled t))
 ```
 
-### `package-vc` (Emacs 29+)
+### `package-vc-install` (Emacs 29+)
+
+For Emacs 29, where `use-package` has no `:vc` keyword:
 
 ```elisp
 (package-vc-install "https://github.com/alberti42/agent-shell-math-renderer")
