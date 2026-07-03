@@ -534,13 +534,13 @@ x
 (ert-deftest agent-shell-math-renderer-cache-dir-uses-agent-shell-cache ()
   ;; By default the equation cache lives under agent-shell's shared cache
   ;; directory (so SVGs persist across sessions next to other cached
-  ;; assets).  `agent-shell.el' isn't loaded by this renderer-only test
-  ;; harness, so stub the helper — exactly the seam the production code
-  ;; relies on agent-shell.el providing in a real session.
+  ;; assets).  Stub `agent-shell-cache-dir' to a temp dir so the test
+  ;; pins a deterministic base and asserts the delegation, rather than
+  ;; touching the real cache location.
   (let ((agent-shell-math-renderer-cache-directory nil)
         (tmp (make-temp-file "asm-cache" t)))
     (unwind-protect
-        (cl-letf (((symbol-function 'agent-shell--cache-dir)
+        (cl-letf (((symbol-function 'agent-shell-cache-dir)
                    (lambda (&rest components)
                      (apply #'file-name-concat tmp components))))
           (should (equal (agent-shell-math-renderer--cache-dir)

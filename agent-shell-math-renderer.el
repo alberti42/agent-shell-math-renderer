@@ -65,15 +65,13 @@
 
 (eval-when-compile
   (require 'cl-lib))
+(require 'agent-shell)
+(require 'agent-shell-markdown)
 (require 'color)
 (require 'map)
 (require 'org-faces)
 (require 'seq)
 (require 'svg)
-
-(declare-function agent-shell-markdown--in-avoid-range-p "agent-shell-markdown")
-(declare-function agent-shell-markdown--sort-ranges "agent-shell-markdown")
-(declare-function agent-shell--cache-dir "agent-shell")
 
 (defgroup agent-shell-math-renderer nil
   "Render LaTeX math in agent-shell's streamed markdown output.
@@ -270,14 +268,14 @@ automatically invalidates cached SVGs."
 (defcustom agent-shell-math-renderer-cache-directory nil
   "Directory for cached equation SVGs and scratch compiles.
 When nil, agent-shell's shared cache directory is used (via
-`agent-shell--cache-dir'), so equation SVGs persist across sessions
+`agent-shell-cache-dir'), so equation SVGs persist across sessions
 alongside agent-shell's other cached assets and each unique
 equation compiles at most once ever.
 
 That helper lives in `agent-shell.el', which is always loaded in a
 real session.  The renderer's test harness loads this module
 without `agent-shell.el'; set this variable there (or stub
-`agent-shell--cache-dir') if a code path needs the directory."
+`agent-shell-cache-dir') if a code path needs the directory."
   :type '(choice (const :tag "Shared agent-shell cache" nil) directory)
   :group 'agent-shell-math-renderer)
 
@@ -395,7 +393,7 @@ returns ((:start 1 :end 11 :open 2 :close 2))."
             (let* ((open-token (match-string-no-properties 1))
                    (open-start (match-beginning 1))
                    (open-end (match-end 1))
-                   (avoid (agent-shell-markdown--in-avoid-range-p
+                   (avoid (agent-shell-markdown-in-avoid-range-p
                            open-start open-end avoid-ranges)))
               (if avoid
                   (goto-char (cdr avoid))
@@ -417,10 +415,10 @@ returns ((:start 1 :end 11 :open 2 :close 2))."
                                         (me (match-end 0))
                                         (tok (match-string-no-properties 0)))
                                     (cond
-                                     ((agent-shell-markdown--in-avoid-range-p
+                                     ((agent-shell-markdown-in-avoid-range-p
                                        mb me avoid-ranges)
                                       (goto-char
-                                       (cdr (agent-shell-markdown--in-avoid-range-p
+                                       (cdr (agent-shell-markdown-in-avoid-range-p
                                              mb me avoid-ranges))))
                                      ;; Blank line: paragraph-break terminator.
                                      ((string-match-p "\n" tok)
@@ -494,7 +492,7 @@ For example, with buffer \"see \\=\\(E=mc^2\\=\\) here\", returns
         (while (re-search-forward open-re nil t)
           (let* ((open-start (match-beginning 0))
                  (open-end (match-end 0))
-                 (avoid (agent-shell-markdown--in-avoid-range-p
+                 (avoid (agent-shell-markdown-in-avoid-range-p
                          open-start open-end avoid-ranges)))
             (if avoid
                 (goto-char (cdr avoid))
@@ -506,7 +504,7 @@ For example, with buffer \"see \\=\\(E=mc^2\\=\\) here\", returns
                   (goto-char open-end)
                   (while (and (not close-end)
                               (re-search-forward close-re eol t))
-                    (let ((in (agent-shell-markdown--in-avoid-range-p
+                    (let ((in (agent-shell-markdown-in-avoid-range-p
                                (match-beginning 0) (match-end 0) avoid-ranges)))
                       (if in
                           (goto-char (cdr in))
@@ -746,10 +744,10 @@ already stripped, e.g. \"E=mc^2\"."
 (defun agent-shell-math-renderer--cache-dir ()
   "Return the equation cache directory, creating it if needed.
 Honours `agent-shell-math-renderer-cache-directory', else
-agent-shell's shared cache directory (`agent-shell--cache-dir'), so
+agent-shell's shared cache directory (`agent-shell-cache-dir'), so
 the cache persists across sessions next to other cached assets."
   (let ((dir (or agent-shell-math-renderer-cache-directory
-                 (agent-shell--cache-dir "markdown-math"))))
+                 (agent-shell-cache-dir "markdown-math"))))
     (unless (file-directory-p dir)
       (make-directory dir t))
     dir))
@@ -1157,7 +1155,7 @@ needs streaming protection, nil otherwise."
     (let* ((source-blocks (map-elt context :source-blocks))
            (inline-code-ranges (map-elt context :inline-code-ranges))
            (source-ranges
-            (agent-shell-markdown--sort-ranges
+            (agent-shell-markdown-sort-ranges
              (mapcar (lambda (sb)
                        (cons (map-nested-elt sb '(:block :start))
                              (map-nested-elt sb '(:block :end))))
@@ -1176,7 +1174,7 @@ needs streaming protection, nil otherwise."
       ;; run), so a literal `\(x\)' the agent meant as code is not
       ;; rendered as math.
       (when agent-shell-math-renderer-render-inline
-        (let ((math-ranges (agent-shell-markdown--sort-ranges
+        (let ((math-ranges (agent-shell-markdown-sort-ranges
                             source-ranges
                             (agent-shell-math-renderer--block-ranges source-ranges)
                             inline-code-ranges)))
