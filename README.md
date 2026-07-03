@@ -8,6 +8,23 @@ copy and save round-trip renderable source.
 
 ![agent-shell-math-renderer rendering the Schrödinger equation in an agent response](images/demo.jpeg)
 
+## Highlights
+
+- **Crisp at any size** — equations are vector SVGs, not bitmaps: no pixelation,
+  sharp on HiDPI/Retina displays and at every zoom level.
+- **Font-matched sizing** — equations render at the buffer's font size, so math
+  sits at the same weight as the surrounding text.
+- **Rescales with your font** — change the buffer or global font size, or zoom
+  (`C-x C-+` / `C-x C--`), and every equation re-sizes to match.
+- **Theme-aware** — switch theme or toggle light/dark and the SVGs re-tint to
+  the new foreground automatically, with no recompile.
+- **Fast** — compilation is asynchronous (hidden behind the agent's streaming)
+  and every equation is cached on disk, so repeats are instant.
+- **No special agent prompt** — works out of the box; the one thing worth
+  telling your agent is to use `\(…\)` for inline math rather than markdown
+  inline code, since there is no unambiguous way to tell inline code *meant as
+  math* from a literal code span (see the tip under [Usage](#usage)).
+
 ## What it renders
 
 | Form | Example | Default |
