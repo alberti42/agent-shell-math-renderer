@@ -95,14 +95,34 @@ With it on, math in the agent's responses renders automatically as it streams.
 The text renders immediately and the image pops in when the (asynchronous)
 compile finishes; the on-disk cache makes every repeat instant.
 
-Need extra LaTeX packages in your equations? Append to the preamble — the value
-is folded into the cache key, so changing it invalidates stale images
+### Enabling per project
+
+Prefer to render math only in some projects? Leave the global switch off and
+enable it per directory. `agent-shell-math-renderer-enabled` is marked safe, so
+a `.dir-locals.el` sets it without a confirmation prompt:
+
+```elisp
+;; .dir-locals.el at a project root
+((agent-shell-mode . ((agent-shell-math-renderer-enabled . t))))
+```
+
+The same works for the other side-effect-free options (`-delimiters`,
+`-fence-languages`, `-render-inline`, `-font-scale`, …). The toolchain and
+preamble options (`-latex-program`, `-dvisvgm-program`, `-preamble`,
+`-appended-preamble`, `-cache-directory`) are **not** marked safe — a
+`.dir-locals.el` lives inside the repo, and those feed a compiler or run a
+program, so Emacs will ask before applying them.
+
+### Extra LaTeX packages
+
+Need extra packages in your equations? Append to the preamble — the value is
+folded into the cache key, so changing it invalidates stale images
 automatically:
 
 ```elisp
 (setq agent-shell-math-renderer-appended-preamble
       "\\usepackage{physics}
-\\usepackage{braket}")
+\\usepackage{siunitx}")
 ```
 
 ### Command
