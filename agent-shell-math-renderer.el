@@ -127,6 +127,9 @@ left untouched).  That anchoring makes `$$' safe enough to enable
 by default; set to \\='(bracket) to drop it if `$$' still
 collides with your prose."
   :type '(set (const bracket) (const dollar))
+  :safe (lambda (v)
+          (and (listp v)
+               (seq-every-p (lambda (x) (memq x '(bracket dollar))) v)))
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-enabled nil
@@ -145,6 +148,7 @@ agent-shell's markdown renderer calls via
 `agent-shell-markdown-render-functions'; when nil the hook is a
 no-op."
   :type 'boolean
+  :safe #'booleanp
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-fence-languages '("math" "latex" "tex")
@@ -163,6 +167,7 @@ agents emit `math'/`latex' fences (GitHub renders ```math as
 display math), so this complements the `\\[...\\]' / `$$...$$'
 delimiter styles.  Set to nil to leave such fences as code."
   :type '(repeat string)
+  :safe (lambda (v) (and (listp v) (seq-every-p #'stringp v)))
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-render-inline t
@@ -184,6 +189,7 @@ too common in prose, currency, and shell snippets to match safely.
 Only the unambiguous `\\(...\\)' form is detected; `$...$' support
 can be added later if agents prove to need it."
   :type 'boolean
+  :safe #'booleanp
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-use-placeholder nil
@@ -192,6 +198,7 @@ Also used as the automatic fallback when the LaTeX toolchain
 \(`agent-shell-math-renderer-latex-program' /
 `agent-shell-math-renderer-dvisvgm-program') is unavailable."
   :type 'boolean
+  :safe #'booleanp
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-render-on-non-graphic nil
@@ -209,6 +216,7 @@ raw LaTeX shows) but appears as soon as a graphical frame views
 the buffer.  The trade-off is that a purely terminal session then
 spawns LaTeX compiles whose images it never displays."
   :type 'boolean
+  :safe #'booleanp
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-latex-program "latex"
@@ -232,6 +240,7 @@ recomputed from the current font, equations track the buffer font
 across themes and faces (run `agent-shell-math-renderer-refresh'
 after a pure font-size change — see its docstring)."
   :type 'number
+  :safe #'numberp
   :group 'agent-shell-math-renderer)
 
 (defvar agent-shell-math-renderer--svg-px-per-pt nil
