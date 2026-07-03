@@ -593,10 +593,10 @@ the same style.
 Shared by the delimiter pass (`agent-shell-math-renderer--style-blocks'),
 the inline pass (`agent-shell-math-renderer--style-inline'), and the
 fenced-block path in `agent-shell-math-renderer--render-hook' (for ```math /
-```latex / ```tex fences).  For a fenced block START..END span the whole
-block, fence lines included; freezing the body is what makes upstream's
-later `agent-shell-markdown--style-source-blocks' skip it (it honors
-`agent-shell-markdown-frozen')."
+```latex / ```tex fences).  The fenced path first rewrites the block in
+place — the backtick fences are dropped and the body wrapped in `\\[...\\]'
+delimiters — and passes START..END over that `\\[...\\]' text, so all three
+callers hand this function a delimited (LaTeX-renderable) region."
   (with-current-buffer buffer
     (setq agent-shell-math-renderer--present t)
     (add-face-text-property start end 'agent-shell-math-renderer)
@@ -1129,7 +1129,16 @@ otherwise."
                             source-ranges
                             (agent-shell-math-renderer--block-ranges source-ranges))))
           (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
-      (dolist (sb source-blocks)
+      ;; Fenced math (```math / ```latex / ```tex): replace the whole
+      ;; block — backtick fences included — with the LaTeX body wrapped
+      ;; in `\[...\]' display delimiters, then overlay the equation image
+      ;; on that.  Dropping the fences (rather than keeping them under the
+      ;; image) means a copy of the rendered region yields renderable
+      ;; LaTeX, not markdown backticks — matching the `$$...$$' / `\[...\]'
+      ;; delimiter paths, which likewise keep their (LaTeX) delimiters.
+      ;; Iterate bottom-up so replacing one block never shifts the
+      ;; positions of earlier, not-yet-processed ones.
+      (dolist (sb (reverse source-blocks))
         (when-let* ((lang (map-elt sb :language))
                     ((agent-shell-math-renderer--fence-language-p lang))
                     ((map-elt sb :complete))
@@ -1139,8 +1148,21 @@ otherwise."
                     (body (map-elt sb :body))
                     (latex (string-trim body))
                     ((not (string-empty-p latex))))
-          (agent-shell-math-renderer--apply-region
-           (current-buffer) start end latex)))
+          (save-excursion
+            (goto-char start)
+            ;; The block's :end sits at the start of the line after the
+            ;; closing fence, so it includes the fence's trailing newline
+            ;; (absent only when the fence is the very last, newline-less
+            ;; line).  Preserve that newline so following content keeps
+            ;; its own line, but leave it out of the frozen math region.
+            (let ((trailing-newline (eq (char-before end) ?\n)))
+              (delete-region start end)
+              (let ((open (point)))
+                (insert "\\[\n" latex "\n\\]")
+                (let ((close (point)))
+                  (when trailing-newline (insert "\n"))
+                  (agent-shell-math-renderer--apply-region
+                   (current-buffer) open close latex)))))))
       (when watermark
         (list (cons :watermark watermark))))))
 

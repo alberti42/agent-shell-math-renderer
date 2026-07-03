@@ -239,27 +239,45 @@ extra
                    '(("$$ E=mc^2 $$" (agent-shell-math-renderer)))))))
 
 (ert-deftest agent-shell-math-renderer-fenced-math-renders ()
-  ;; A ```math fence renders as display math: the fences are stripped
-  ;; and the body is math-faced (the trailing newline stays plain).
+  ;; A ```math fence renders as display math: the backtick fences are
+  ;; dropped and the body is rewritten as `\\[...\\]' (so a copy yields
+  ;; renderable LaTeX, not markdown), math-faced as one run.
   (agent-shell-math-renderer-tests--enabled
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "```math
 E=mc^2
 ```"))
-                   '(("E=mc^2" (agent-shell-math-renderer))
-                     ("
-" nil))))))
+                   '(("\\[
+E=mc^2
+\\]" (agent-shell-math-renderer)))))))
 
 (ert-deftest agent-shell-math-renderer-fenced-latex-renders ()
-  ;; A ```latex fence is also treated as display math.
+  ;; A ```latex fence is also treated as display math, rewritten to
+  ;; `\\[...\\]' the same way.
   (agent-shell-math-renderer-tests--enabled
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "```latex
 E=mc^2
 ```"))
-                   '(("E=mc^2" (agent-shell-math-renderer))
+                   '(("\\[
+E=mc^2
+\\]" (agent-shell-math-renderer)))))))
+
+(ert-deftest agent-shell-math-renderer-fenced-math-keeps-following-content ()
+  ;; When content follows the fence, the block's trailing newline is
+  ;; preserved (kept out of the math run) so following prose stays on
+  ;; its own line and is otherwise untouched.
+  (agent-shell-math-renderer-tests--enabled
+    (should (equal (agent-shell-markdown--deconstruct
+                    (agent-shell-markdown-convert "```math
+E=mc^2
+```
+after"))
+                   '(("\\[
+E=mc^2
+\\]" (agent-shell-math-renderer))
                      ("
-" nil))))))
+after" nil))))))
 
 (ert-deftest agent-shell-math-renderer-fenced-non-math-stays-code ()
   ;; A non-math language fence is unaffected by math rendering — it
