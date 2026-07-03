@@ -4,6 +4,9 @@
 
 ;; Author: Andrea Alberti
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
+;; Version: 0.1.0
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.57.3"))
+;; Keywords: convenience, tools, tex
 
 ;; This package is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -41,9 +44,12 @@
 ;; rejected — this bounds detection and stops a stray delimiter from
 ;; swallowing the rest of a streaming response.
 ;;
-;; `agent-shell-math-renderer--style-blocks' is run as a pass by
-;; `agent-shell-markdown-replace-markup'; the other functions support
-;; it and the renderer's avoid-range / watermark bookkeeping.
+;; The renderer plugs into agent-shell only through the public hook
+;; `agent-shell-markdown-render-functions': agent-shell's markdown
+;; renderer calls `agent-shell-math-renderer--render-hook' once per
+;; streaming chunk, after its own passes.  The hook styles the delimiter
+;; and inline math, renders fenced math, and returns a watermark when an
+;; unclosed block still needs streaming protection.
 ;;
 ;; Equations are typeset by compiling a standalone LaTeX document to DVI
 ;; (`latex') and converting it to SVG (`dvisvgm') — the same toolchain
@@ -67,13 +73,22 @@
 (declare-function agent-shell-markdown--sort-ranges "agent-shell-markdown")
 (declare-function agent-shell--cache-dir "agent-shell")
 
+(defgroup agent-shell-math-renderer nil
+  "Render LaTeX math in agent-shell's streamed markdown output.
+Display equations (`\\[...\\]', `$$...$$', and ```math / ```latex /
+```tex fences) and inline `\\(...\\)' are compiled to SVG with
+`latex' + `dvisvgm' and overlaid on the raw LaTeX (kept in the
+buffer so copy/save round-trips the source)."
+  :group 'agent-shell
+  :prefix "agent-shell-math-renderer-")
+
 (defface agent-shell-math-renderer
   '((t :inherit font-lock-constant-face))
   "Face applied to rendered display-math source.
 On a graphical display the source is hidden behind an equation
 image; this face is the fallback styling for the raw LaTeX shown
 on a non-graphical display."
-  :group 'agent-shell-markdown)
+  :group 'agent-shell-math-renderer)
 
 (defconst agent-shell-math-renderer--delimiters
   '((dollar . ("$$" . "$$"))
@@ -88,7 +103,7 @@ map are the values accepted in `agent-shell-math-renderer-delimiters'.")
 (defconst agent-shell-math-renderer--inline-close "\\)"
   "Closing delimiter for inline math (a literal backslash and paren).")
 
-(defvar agent-shell-math-renderer-delimiters '(bracket dollar)
+(defcustom agent-shell-math-renderer-delimiters '(bracket dollar)
   "Display-math delimiter styles recognized when rendering markdown.
 
 A list whose members are keys of
@@ -110,23 +125,29 @@ display math is therefore not recognized (agents don't emit it,
 and truly inline math should use `\\(...\\)' / `$...$', which are
 left untouched).  That anchoring makes `$$' safe enough to enable
 by default; set to \\='(bracket) to drop it if `$$' still
-collides with your prose.")
+collides with your prose."
+  :type '(set (const bracket) (const dollar))
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-enabled nil
+(defcustom agent-shell-math-renderer-enabled nil
   "Master switch for rendering display math in agent responses.
 
 Nil (the default) disables math rendering entirely — delimiters
 and fenced math blocks are left as plain text / ordinary code
 blocks.  Set non-nil to opt in; what then gets recognized is
-controlled by `agent-shell-math-renderer-delimiters' (`\\[...\\]'
-on by default, `$$...$$' opt-in) and
+controlled by `agent-shell-math-renderer-delimiters' (both
+`\\[...\\]' and `$$...$$' on by default) and
 `agent-shell-math-renderer-fence-languages' (`math' / `latex' /
 `tex' fenced blocks, on by default).
 
-Consumed as the default of the `render-math' keyword of
-`agent-shell-markdown-replace-markup'.")
+Checked by `agent-shell-math-renderer--render-hook', which
+agent-shell's markdown renderer calls via
+`agent-shell-markdown-render-functions'; when nil the hook is a
+no-op."
+  :type 'boolean
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-fence-languages '("math" "latex" "tex")
+(defcustom agent-shell-math-renderer-fence-languages '("math" "latex" "tex")
   "Fenced-code-block languages rendered as display math.
 
 A fenced block whose info string is one of these (compared
@@ -140,9 +161,11 @@ is typeset as an equation instead of shown as a code block — but
 only when `agent-shell-math-renderer-enabled' is non-nil.  Several
 agents emit `math'/`latex' fences (GitHub renders ```math as
 display math), so this complements the `\\[...\\]' / `$$...$$'
-delimiter styles.  Set to nil to leave such fences as code.")
+delimiter styles.  Set to nil to leave such fences as code."
+  :type '(repeat string)
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-render-inline t
+(defcustom agent-shell-math-renderer-render-inline t
   "When non-nil, recognize inline math `\\(...\\)' in agent responses.
 
 Only effective when the master switch
@@ -159,15 +182,19 @@ swallowing the rest of a streaming response.
 Inline `$...$' is deliberately NOT recognized: a lone `$' is far
 too common in prose, currency, and shell snippets to match safely.
 Only the unambiguous `\\(...\\)' form is detected; `$...$' support
-can be added later if agents prove to need it.")
+can be added later if agents prove to need it."
+  :type 'boolean
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-use-placeholder nil
+(defcustom agent-shell-math-renderer-use-placeholder nil
   "When non-nil, draw the placeholder panel instead of typesetting LaTeX.
 Also used as the automatic fallback when the LaTeX toolchain
 \(`agent-shell-math-renderer-latex-program' /
-`agent-shell-math-renderer-dvisvgm-program') is unavailable.")
+`agent-shell-math-renderer-dvisvgm-program') is unavailable."
+  :type 'boolean
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-render-on-non-graphic nil
+(defcustom agent-shell-math-renderer-render-on-non-graphic nil
   "When non-nil, render equation images even on a non-graphical frame.
 
 By default equations are only compiled when the selected frame is
@@ -180,15 +207,21 @@ Set non-nil (typically in a daemon setup) to always compile the
 SVG when the build supports it: it is ignored on a TTY frame (the
 raw LaTeX shows) but appears as soon as a graphical frame views
 the buffer.  The trade-off is that a purely terminal session then
-spawns LaTeX compiles whose images it never displays.")
+spawns LaTeX compiles whose images it never displays."
+  :type 'boolean
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-latex-program "latex"
-  "Program that compiles a LaTeX document to DVI.")
+(defcustom agent-shell-math-renderer-latex-program "latex"
+  "Program that compiles a LaTeX document to DVI."
+  :type 'string
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-dvisvgm-program "dvisvgm"
-  "Program that converts DVI to SVG.")
+(defcustom agent-shell-math-renderer-dvisvgm-program "dvisvgm"
+  "Program that converts DVI to SVG."
+  :type 'string
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-font-scale 1.0
+(defcustom agent-shell-math-renderer-font-scale 1.0
   "Size of rendered equations relative to the buffer font.
 
 Equation images are scaled so LaTeX's 10pt body font maps onto the
@@ -197,7 +230,9 @@ buffer's font height; this multiplier rides on top of that match.
 greater than 1 enlarges, less than 1 shrinks.  Because the match is
 recomputed from the current font, equations track the buffer font
 across themes and faces (run `agent-shell-math-renderer-refresh'
-after a pure font-size change — see its docstring).")
+after a pure font-size change — see its docstring)."
+  :type 'number
+  :group 'agent-shell-math-renderer)
 
 (defvar agent-shell-math-renderer--svg-px-per-pt nil
   "Cached pixels-per-point Emacs uses to render SVG images.
@@ -205,7 +240,7 @@ Measured once on a graphical frame by
 `agent-shell-math-renderer--svg-px-per-pt' (so HiDPI / image
 scaling is captured exactly); nil until then.")
 
-(defvar agent-shell-math-renderer-preamble
+(defcustom agent-shell-math-renderer-preamble
   "\\documentclass[border=2pt]{standalone}
 \\usepackage{amsmath}
 \\usepackage{amssymb}
@@ -217,16 +252,20 @@ equation to match the buffer foreground.  Equations are typeset as
 `\\displaystyle' inline math inside the document body.
 
 See also `agent-shell-math-renderer-appended-preamble' for adding
-extra packages without replacing this base.")
+extra packages without replacing this base."
+  :type 'string
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-appended-preamble ""
+(defcustom agent-shell-math-renderer-appended-preamble ""
   "Extra LaTeX code appended after `agent-shell-math-renderer-preamble'.
 Use this to load additional packages (e.g. `\\\\usepackage{braket}',
 `\\\\usepackage{physics}') without replacing the base preamble.
 The value is folded into the cache key, so changing it
-automatically invalidates cached SVGs.")
+automatically invalidates cached SVGs."
+  :type 'string
+  :group 'agent-shell-math-renderer)
 
-(defvar agent-shell-math-renderer-cache-directory nil
+(defcustom agent-shell-math-renderer-cache-directory nil
   "Directory for cached equation SVGs and scratch compiles.
 When nil, agent-shell's shared cache directory is used (via
 `agent-shell--cache-dir'), so equation SVGs persist across sessions
@@ -236,7 +275,9 @@ equation compiles at most once ever.
 That helper lives in `agent-shell.el', which is always loaded in a
 real session.  The renderer's test harness loads this module
 without `agent-shell.el'; set this variable there (or stub
-`agent-shell--cache-dir') if a code path needs the directory.")
+`agent-shell--cache-dir') if a code path needs the directory."
+  :type '(choice (const :tag "Shared agent-shell cache" nil) directory)
+  :group 'agent-shell-math-renderer)
 
 ;; image-cache key = content key (sha1 of latex + color + scale + preamble +
 ;; inline) plus the display scale, via `--math-image-cache-key'.  Folding the
