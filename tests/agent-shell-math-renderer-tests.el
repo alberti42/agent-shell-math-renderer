@@ -20,6 +20,14 @@
 ;; The math passes run through `agent-shell-markdown-convert', so the
 ;; tests exercise the hook integration rather than the module in
 ;; isolation.
+;;
+;; NOTE: these tests call `agent-shell-markdown--deconstruct' (a private
+;; agent-shell helper that turns propertized text into (STRING . FACES)
+;; runs) for their assertions.  It is the one remaining dependency on an
+;; agent-shell internal, and it is deliberately test-only: the shipped
+;; package uses only public agent-shell API, so if upstream renames or
+;; drops `--deconstruct' it breaks *these tests*, never production.  The
+;; fix is then local — adapt the assertions (or inline an equivalent).
 (require 'agent-shell-markdown)
 (require 'agent-shell-math-renderer)
 
