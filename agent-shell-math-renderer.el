@@ -646,10 +646,10 @@ callers hand this function a delimited (LaTeX-renderable) region."
     (add-text-properties
      start end
      `(help-echo ,latex
-       agent-shell-math-renderer-source ,latex
-       agent-shell-math-renderer-inline ,inline
-       agent-shell-markdown-frozen t
-       rear-nonsticky (agent-shell-markdown-frozen)))
+                 agent-shell-math-renderer-source ,latex
+                 agent-shell-math-renderer-inline ,inline
+                 agent-shell-markdown-frozen t
+                 rear-nonsticky (agent-shell-markdown-frozen)))
     (agent-shell-math-renderer--render buffer start end latex inline)))
 
 (defun agent-shell-math-renderer--svg-color (face attribute fallback)
