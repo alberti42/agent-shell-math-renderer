@@ -111,6 +111,25 @@ preamble options (`-latex-program`, `-dvisvgm-program`, `-preamble`,
 `.dir-locals.el` lives inside the repo, and those feed a compiler or run a
 program, so Emacs will ask before applying them.
 
+### Tip: tell the agent to use `\(…\)` for inline math
+
+Inline math renders **only** when the agent emits it as `\(…\)`. Two common
+alternatives are deliberately left alone:
+
+- **Markdown inline code** (`` `x^2` ``) — code spans are never treated as math,
+  so math wrapped in backticks stays literal code. (This is on purpose: it lets
+  the agent show a literal `` `\(x\)` `` when it means the source, not the
+  equation.)
+- **Inline `$…$`** — not matched, because a lone `$` is too common in prose.
+
+Many agents default to wrapping inline math in backticks, which then won't
+render. If yours does, add an instruction to its prompt or project rules:
+
+> For inline math, use the delimiters `\(` and `\)` — not markdown inline code.
+
+(Display math — `\[…\]`, `$$…$$`, and ```` ```math ```` fences — is unaffected;
+this tip is only about *inline* math.)
+
 ### Extra LaTeX packages
 
 Need extra packages in your equations? Append to the preamble — the value is
