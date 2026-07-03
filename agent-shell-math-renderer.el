@@ -5,7 +5,7 @@
 ;; Author: Andrea Alberti
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.57.3"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.57.4"))
 ;; Keywords: convenience, tools, tex
 
 ;; This package is free software; you can redistribute it and/or modify

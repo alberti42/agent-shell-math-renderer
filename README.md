@@ -35,7 +35,8 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 ## Requirements
 
 - **Emacs 29.1+**
-- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.57.3 or newer)
+- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.57.4 or newer —
+  the release that exposes `:inline-code-ranges` to render hooks)
 - A **LaTeX toolchain** providing `latex` and `dvisvgm` (e.g. TeX Live /
   MacTeX; `dvisvgm` ships with TeX Live). Without it, equations fall back to a
   bordered placeholder or the raw LaTeX text.
