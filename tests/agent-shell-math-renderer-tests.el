@@ -434,6 +434,26 @@ E=mc^2
                           (memq 'agent-shell-markdown-inline-code (cadr run)))
                         runs)))))
 
+(ert-deftest agent-shell-math-renderer-inline-math-beside-inline-code ()
+  ;; With both a backticked `\\(x\\)' (literal code) and a real `\\(y\\)'
+  ;; on one line, only the real one renders as math — the code span keeps
+  ;; its inline-code face and gets no math face.  Exercises the
+  ;; `:inline-code-ranges' avoid-range: it must exclude the code span
+  ;; *without* swallowing the real math beside it.
+  (agent-shell-math-renderer-tests--enabled
+    (let ((runs (agent-shell-markdown--deconstruct
+                 (agent-shell-markdown-convert "`\\(x\\)` and \\(y\\)"))))
+      ;; The code span's body is inline-code faced, never math.
+      (should (seq-some (lambda (run)
+                          (and (member "\\(x\\)" (list (car run)))
+                               (memq 'agent-shell-markdown-inline-code (cadr run))))
+                        runs))
+      ;; The real math span is math faced.
+      (should (seq-some (lambda (run)
+                          (and (equal (car run) "\\(y\\)")
+                               (memq 'agent-shell-math-renderer (cadr run))))
+                        runs)))))
+
 (ert-deftest agent-shell-math-renderer-inline-math-in-fenced-block-untouched ()
   ;; A `\\(...\\)' inside a fenced code block is body text, not math.
   (agent-shell-math-renderer-tests--enabled

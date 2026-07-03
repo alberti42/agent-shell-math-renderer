@@ -1105,11 +1105,14 @@ change is picked up just like a color change."
   "Hook function for `agent-shell-markdown-render-functions'.
 Detect and render display-math blocks, inline math, and fenced
 math blocks in the current (narrowed) buffer.  CONTEXT is an
-alist with `:source-blocks'.  Returns an alist with `:watermark'
-when an unclosed delimiter needs streaming protection, nil
-otherwise."
+alist with `:source-blocks' (fenced-block descriptors) and
+`:inline-code-ranges' (marker ranges over inline `code' span
+bodies, used to keep `\\(...\\)' inside a code span literal).
+Returns an alist with `:watermark' when an unclosed delimiter
+needs streaming protection, nil otherwise."
   (when agent-shell-math-renderer-enabled
     (let* ((source-blocks (map-elt context :source-blocks))
+           (inline-code-ranges (map-elt context :inline-code-ranges))
            (source-ranges
             (agent-shell-markdown--sort-ranges
              (mapcar (lambda (sb)
@@ -1124,10 +1127,16 @@ otherwise."
           (setq watermark (plist-get open-block :start))
           (put-text-property (plist-get open-block :start) (plist-get open-block :end)
                              'agent-shell-markdown-frozen t)))
+      ;; Inline `\(...\)': avoid code fences, display-math blocks, and
+      ;; inline `code' spans.  The inline-code ranges come from the hook
+      ;; `context' (upstream computes them before the render functions
+      ;; run), so a literal `\(x\)' the agent meant as code is not
+      ;; rendered as math.
       (when agent-shell-math-renderer-render-inline
         (let ((math-ranges (agent-shell-markdown--sort-ranges
                             source-ranges
-                            (agent-shell-math-renderer--block-ranges source-ranges))))
+                            (agent-shell-math-renderer--block-ranges source-ranges)
+                            inline-code-ranges)))
           (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
       ;; Fenced math (```math / ```latex / ```tex): replace the whole
       ;; block — backtick fences included — with the LaTeX body wrapped
