@@ -2,11 +2,13 @@
 
 ;; Copyright (C) 2026 Andrea Alberti
 
-;; Author: Andrea Alberti
+;; Author: Andrea Alberti <a.alberti82@gmail.com>
+;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
+;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "29.1") (agent-shell "0.57.4"))
-;; Keywords: convenience, tools, tex
+;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
