@@ -6,9 +6,7 @@ response are compiled with `latex` → `dvisvgm` and shown as crisp,
 theme-matched SVG images — while the original LaTeX stays in the buffer, so
 copy and save round-trip renderable source.
 
-<!-- Add a screenshot here, e.g.:
-![screenshot](images/demo.png)
--->
+![agent-shell-math-renderer rendering the Schrödinger equation in an agent response](images/demo.jpeg)
 
 ## What it renders
 
