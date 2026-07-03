@@ -245,7 +245,7 @@ after a pure font-size change — see its docstring)."
 
 (defvar agent-shell-math-renderer--svg-px-per-pt nil
   "Cached pixels-per-point Emacs uses to render SVG images.
-Measured once on a graphical frame by
+Measured once on a graphical frame by the function
 `agent-shell-math-renderer--svg-px-per-pt' (so HiDPI / image
 scaling is captured exactly); nil until then.")
 
@@ -375,7 +375,7 @@ continues.
     block on a later line is still found.
   - Neither yet (end of buffer): a still-streaming block extending
     to `point-max' with :close 0, so a genuine equation stays
-    protected as the buffer grows — mirroring how agent-shell keeps a
+    protected as the buffer grows — mirroring how `agent-shell' keeps a
     still-open fenced block protected as it streams.
 
 A delimiter inside any of AVOID-RANGES (a sorted vector, typically
@@ -787,7 +787,8 @@ neither size nor color is part of this key."
 Measured once from a reference SVG declared at a known point size
 \(so HiDPI and `image-scaling-factor' are captured exactly — the
 same factor applies to equation images, so it cancels in the size
-ratio) and cached in `agent-shell-math-renderer--svg-px-per-pt'.
+ratio) and cached in the variable
+`agent-shell-math-renderer--svg-px-per-pt'.
 Falls back to 96/72 (the usual 96-DPI ratio) when not on a
 graphical frame or measurement fails; the fallback is not cached,
 so a later graphical frame can still measure."
