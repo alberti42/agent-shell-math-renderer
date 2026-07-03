@@ -366,8 +366,8 @@ continues.
     block on a later line is still found.
   - Neither yet (end of buffer): a still-streaming block extending
     to `point-max' with :close 0, so a genuine equation stays
-    protected as the buffer grows — mirrors
-    `agent-shell-markdown--source-block-ranges'.
+    protected as the buffer grows — mirroring how agent-shell keeps a
+    still-open fenced block protected as it streams.
 
 A delimiter inside any of AVOID-RANGES (a sorted vector, typically
 fenced code) is ignored — both openers and closers — so blocks
