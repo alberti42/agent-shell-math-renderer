@@ -724,6 +724,110 @@ x
               (should (equal (image-property img2 :scale) 1.5)))))
       (delete-file tmp))))
 
+;;; Overlay-renderer bridge (`agent-shell-math-renderer-render-overlays')
+;;
+;; The other tests drive the in-place renderer via
+;; `agent-shell-markdown-convert', which runs our render hook.  The overlay
+;; renderer (`markdown-overlays-put') never runs that hook, so the bridge is
+;; exercised separately here: render into a buffer with `markdown-overlays-put'
+;; + the bridge, then read back the `face' runs.  `markdown-overlays-put'
+;; styles via overlays (invisible to `--deconstruct', which reads the `face'
+;; text property), while our math renderer uses text properties — so a run
+;; faced `agent-shell-math-renderer' is unambiguously ours.
+
+(require 'markdown-overlays)
+
+(defun agent-shell-math-renderer-tests--overlay-deconstruct (markdown)
+  "Render MARKDOWN through the overlay path and return its `face' runs.
+Runs `markdown-overlays-put' then feeds its result to
+`agent-shell-math-renderer-render-overlays' in a temp buffer, mirroring the
+custom `agent-shell-markdown-render-function' wrapper users install for the
+overlay renderer, and deconstructs the resulting buffer text."
+  (with-temp-buffer
+    (insert markdown)
+    (let ((result (markdown-overlays-put)))
+      (agent-shell-math-renderer-render-overlays result))
+    (agent-shell-markdown--deconstruct (buffer-string))))
+
+(ert-deftest agent-shell-math-renderer-overlay-bridge-renders-bracket-math ()
+  ;; Under the overlay renderer, a complete `\\[...\\]' block is still
+  ;; recognized and math-faced as one run — the bridge stands in for the
+  ;; render hook the overlay path never calls.
+  (agent-shell-math-renderer-tests--enabled
+    (should (equal (agent-shell-math-renderer-tests--overlay-deconstruct
+                    "\\[E=mc^2\\]")
+                   '(("\\[E=mc^2\\]" (agent-shell-math-renderer)))))))
+
+(ert-deftest agent-shell-math-renderer-overlay-bridge-renders-dollar-math ()
+  ;; `$$...$$' likewise renders on the overlay path (dollar delimiter on).
+  (agent-shell-math-renderer-tests--with-dollar
+    (should (equal (agent-shell-math-renderer-tests--overlay-deconstruct
+                    "$$
+E=mc^2
+$$")
+                   '(("$$
+E=mc^2
+$$" (agent-shell-math-renderer)))))))
+
+(ert-deftest agent-shell-math-renderer-overlay-bridge-renders-inline-math ()
+  ;; Inline `\\(...\\)' renders on the overlay path; surrounding prose is
+  ;; left unfaced (its markdown, if any, is styled by overlays we don't read).
+  (agent-shell-math-renderer-tests--enabled
+    (should (equal (agent-shell-math-renderer-tests--overlay-deconstruct
+                    "see \\(x^2\\) here")
+                   '(("see " nil)
+                     ("\\(x^2\\)" (agent-shell-math-renderer))
+                     (" here" nil))))))
+
+(ert-deftest agent-shell-math-renderer-overlay-bridge-renders-fenced-math ()
+  ;; A ```math fence is rewritten to `\\[...\\]' and math-faced, the same as
+  ;; on the in-place path — the bridge reuses `--rewrite-fenced-block'.
+  (agent-shell-math-renderer-tests--enabled
+    (should (equal (agent-shell-math-renderer-tests--overlay-deconstruct
+                    "```math
+E=mc^2
+```")
+                   '(("\\[
+E=mc^2
+\\]" (agent-shell-math-renderer)))))))
+
+(ert-deftest agent-shell-math-renderer-overlay-bridge-fenced-keeps-following-content ()
+  ;; The fenced block's trailing newline is preserved so following prose
+  ;; stays on its own line (the overlay path's block end sits on that
+  ;; newline, matching the in-place convention).
+  (agent-shell-math-renderer-tests--enabled
+    (should (equal (agent-shell-math-renderer-tests--overlay-deconstruct
+                    "```math
+E=mc^2
+```
+after")
+                   '(("\\[
+E=mc^2
+\\]" (agent-shell-math-renderer))
+                     ("
+after" nil))))))
+
+(ert-deftest agent-shell-math-renderer-overlay-bridge-avoids-math-in-code ()
+  ;; `\\(...\\)' inside a fenced code block is body text, not math: the
+  ;; bridge takes the overlay renderer's `avoided-ranges' as its avoid-set,
+  ;; so nothing in the code block is math-faced.
+  (agent-shell-math-renderer-tests--enabled
+    (let ((runs (agent-shell-math-renderer-tests--overlay-deconstruct
+                 "```python
+y = \\(x\\)
+```")))
+      (should-not (seq-some (lambda (run)
+                              (memq 'agent-shell-math-renderer (cadr run)))
+                            runs)))))
+
+(ert-deftest agent-shell-math-renderer-overlay-bridge-master-switch-off ()
+  ;; With the master switch off, the bridge is a no-op: `\\[...\\]' is left
+  ;; plain, unfaced by us.
+  (let ((agent-shell-math-renderer-enabled nil))
+    (should (equal (agent-shell-math-renderer-tests--overlay-deconstruct
+                    "\\[E=mc^2\\]")
+                   '(("\\[E=mc^2\\]" nil))))))
+
 (provide 'agent-shell-math-renderer-tests)
 
 ;;; agent-shell-math-renderer-tests.el ends here

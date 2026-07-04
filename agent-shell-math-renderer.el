@@ -1152,6 +1152,33 @@ change is picked up just like a color change."
 
 ;;; Hook integration with agent-shell-markdown
 
+(defun agent-shell-math-renderer--rewrite-fenced-block (start end latex)
+  "Rewrite the fenced math block spanning START..END as `\\[LATEX\\]', then
+render it.
+
+START..END cover the whole fenced block (backtick fences included); LATEX
+is its already-trimmed body.  The backtick fences are dropped and the body
+re-wrapped in `\\[...\\]' display delimiters, then that region is routed to
+`agent-shell-math-renderer--apply-region' (freeze + overlay).  A trailing
+newline just inside END (present unless the closing fence is the buffer's
+last, newline-less line) is kept outside the frozen math region so following
+content stays on its own line.
+
+Shared by both integration paths: `agent-shell-math-renderer--render-hook'
+\(the in-place renderer, START/END from agent-shell-markdown's `:block'
+positions) and `agent-shell-math-renderer-render-overlays' (the overlay
+renderer, START/END from `markdown-overlays-put's source-block ranges)."
+  (save-excursion
+    (goto-char start)
+    (let ((trailing-newline (eq (char-before end) ?\n)))
+      (delete-region start end)
+      (let ((open (point)))
+        (insert "\\[\n" latex "\n\\]")
+        (let ((close (point)))
+          (when trailing-newline (insert "\n"))
+          (agent-shell-math-renderer--apply-region
+           (current-buffer) open close latex))))))
+
 (defun agent-shell-math-renderer--render-hook (context)
   "Hook function for `agent-shell-markdown-render-functions'.
 Detect and render display-math blocks, inline math, and fenced
@@ -1208,26 +1235,136 @@ needs streaming protection, nil otherwise."
                     (body (map-elt sb :body))
                     (latex (string-trim body))
                     ((not (string-empty-p latex))))
-          (save-excursion
-            (goto-char start)
-            ;; The block's :end sits at the start of the line after the
-            ;; closing fence, so it includes the fence's trailing newline
-            ;; (absent only when the fence is the very last, newline-less
-            ;; line).  Preserve that newline so following content keeps
-            ;; its own line, but leave it out of the frozen math region.
-            (let ((trailing-newline (eq (char-before end) ?\n)))
-              (delete-region start end)
-              (let ((open (point)))
-                (insert "\\[\n" latex "\n\\]")
-                (let ((close (point)))
-                  (when trailing-newline (insert "\n"))
-                  (agent-shell-math-renderer--apply-region
-                   (current-buffer) open close latex)))))))
+          ;; The block's :end sits at the start of the line after the
+          ;; closing fence, so a trailing newline is folded in and kept out
+          ;; of the frozen region (see `--rewrite-fenced-block').
+          (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
       (when watermark
         (list (cons :watermark watermark))))))
 
 (add-hook 'agent-shell-markdown-render-functions
           #'agent-shell-math-renderer--render-hook)
+
+;;; Integration with the overlay renderer (`markdown-overlays-put')
+
+;; agent-shell ships two markdown renderers, selected by
+;; `agent-shell-markdown-render-function':
+;;
+;;   - the in-place renderer (`agent-shell-markdown-replace-markup', the
+;;     default) rewrites markup into the buffer and runs
+;;     `agent-shell-markdown-render-functions' — the hook above.
+;;
+;;   - the overlay renderer (`agent-shell--markdown-overlays-put', wrapping
+;;     `markdown-overlays-put' from shell-maker) leaves the buffer text as
+;;     raw markdown and only overlays styling — good for verbatim copy — but
+;;     does NOT run `agent-shell-markdown-render-functions', so the hook
+;;     above never fires and no math is rendered.
+;;
+;; The function below is the bridge for that second path.  Rather than
+;; attaching to a hook (the overlay renderer offers none), it is meant to be
+;; called from a custom `agent-shell-markdown-render-function' wrapper right
+;; after `markdown-overlays-put', reusing the alist that call returns so we
+;; don't re-scan the buffer for code / fenced blocks.
+;;
+;; This is the one place the package touches shell-maker's overlay renderer;
+;; it depends on the documented return contract of `markdown-overlays-put'
+;; (its `avoided-ranges' and `source-blocks' keys), nothing more.  Our SVG is
+;; applied as a `display' text property, and `markdown-overlays-remove' only
+;; clears overlays tagged `(category markdown-overlays)', so re-running the
+;; overlay renderer on each streaming chunk leaves our math untouched.
+
+(defun agent-shell-math-renderer--render-overlay-fence (block)
+  "Render a `markdown-overlays-put' source BLOCK as display math, when apt.
+
+BLOCK is one entry of the `source-blocks' list `markdown-overlays-put'
+returns: an alist whose `start' / `end' / `language' / `body' values are
+each a (BEG . END) cons over the buffer (or nil for a missing language).
+When BLOCK is a complete math-language fence (see
+`agent-shell-math-renderer-fence-languages') with a non-empty body and is
+not already frozen, it is rewritten to `\\[...\\]' and rendered via
+`agent-shell-math-renderer--rewrite-fenced-block'; otherwise BLOCK is left
+untouched.
+
+The overlay renderer only matches closed fences, so BLOCK is always
+complete (there is no `:complete' flag to check, unlike the in-place
+renderer's source-block descriptors)."
+  (when-let* ((lang-range (map-elt block 'language))
+              (lang (buffer-substring-no-properties (car lang-range)
+                                                    (cdr lang-range)))
+              ((agent-shell-math-renderer--fence-language-p lang))
+              (body-range (map-elt block 'body))
+              (latex (string-trim
+                      (buffer-substring-no-properties (car body-range)
+                                                      (cdr body-range))))
+              ((not (string-empty-p latex)))
+              (start (car (map-elt block 'start)))
+              ;; The `end' range's cdr sits just past the closing backticks,
+              ;; on the fence's trailing newline (or `point-max').  That is
+              ;; exactly the block end `--rewrite-fenced-block' expects: it
+              ;; deletes up to there and the leftover newline stays after the
+              ;; inserted `\]', keeping following content on its own line.
+              (end (cdr (map-elt block 'end)))
+              ((not (get-text-property start 'agent-shell-markdown-frozen))))
+    (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
+
+;;;###autoload
+(defun agent-shell-math-renderer-render-overlays (&optional overlays-result)
+  "Render LaTeX math in the current narrowed buffer, for the overlay renderer.
+
+This is the entry point for agent-shell's overlay markdown renderer
+\(`markdown-overlays-put'), which — unlike the in-place renderer — does not
+run `agent-shell-markdown-render-functions', so the package's normal render
+hook never fires.  Call it from a custom
+`agent-shell-markdown-render-function' wrapper, immediately after
+`markdown-overlays-put', passing that call's return value:
+
+  (cl-defun my/render (&key render-images highlight-blocks &allow-other-keys)
+    (let ((markdown-overlays-render-images render-images)
+          (markdown-overlays-highlight-blocks highlight-blocks))
+      (prog1 (markdown-overlays-put)
+        (agent-shell-math-renderer-render-overlays))))
+
+wrapping the result with `prog1' so the wrapper still returns what
+`markdown-overlays-put' returned.  OVERLAYS-RESULT is that alist; two keys
+are read:
+
+  - `avoided-ranges' — the code / inline-code / table spans the overlay
+    renderer protected.  Used verbatim as the math avoid-ranges, so math is
+    never detected inside code and stays consistent with what the overlay
+    renderer treated as verbatim.
+  - `source-blocks' — the fenced code blocks, scanned for ```math /
+    ```latex / ```tex to render as display math.
+
+When OVERLAYS-RESULT is nil the passes still run, but with no avoid-ranges
+and no fenced math — so pass the value in practice.  A no-op when
+`agent-shell-math-renderer-enabled' is nil.
+
+Unlike the in-place render hook, this needs no watermark and freezes no
+still-open block: the overlay renderer re-scans the whole (narrowed)
+fragment on every streaming chunk, so an equation that is still streaming is
+simply left unrendered this pass and picked up once it closes, and an
+already-rendered (frozen) region is re-detected but idempotently re-applied
+from cache."
+  (when agent-shell-math-renderer-enabled
+    (let ((avoid-ranges (agent-shell-markdown-sort-ranges
+                         (map-elt overlays-result 'avoided-ranges))))
+      ;; Delimiter display math (`$$...$$', `\[...\]').  Text properties
+      ;; only — no buffer edits — so AVOID-RANGES stays valid for the inline
+      ;; pass below.
+      (agent-shell-math-renderer--style-blocks :avoid-ranges avoid-ranges)
+      ;; Inline `\(...\)': avoid code / inline-code / tables (AVOID-RANGES)
+      ;; plus the display-math blocks just detected.
+      (when agent-shell-math-renderer-render-inline
+        (agent-shell-math-renderer--style-inline
+         :avoid-ranges (agent-shell-markdown-sort-ranges
+                        avoid-ranges
+                        (agent-shell-math-renderer--block-ranges avoid-ranges))))
+      ;; Fenced math (```math / ```latex / ```tex): rewrite to `\[...\]' and
+      ;; render.  Bottom-up (reverse) so rewriting one block never shifts the
+      ;; positions of earlier, not-yet-processed ones.  These are the last
+      ;; pass because they edit the buffer.
+      (dolist (block (reverse (map-elt overlays-result 'source-blocks)))
+        (agent-shell-math-renderer--render-overlay-fence block)))))
 
 (provide 'agent-shell-math-renderer)
 
