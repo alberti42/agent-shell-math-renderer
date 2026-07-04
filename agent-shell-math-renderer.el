@@ -592,6 +592,13 @@ cached, otherwise once an async compile finishes).  Blocks inside
 any of AVOID-RANGES (typically fenced code) are left untouched, as
 is an empty block.
 
+A block already carrying `agent-shell-math-renderer-source' (one this
+pass rendered on an earlier call) is skipped, so re-running over the
+same buffer — as the overlay renderer does on every streaming chunk —
+does not re-apply finished equations.  Re-rendering for a theme / font
+change goes through `agent-shell-math-renderer-refresh' instead, which
+walks the `-source' regions directly and never calls this pass.
+
 Adds only text properties (no insert / delete), so the block
 positions returned by `agent-shell-math-renderer--blocks' stay
 valid while iterating.
@@ -608,6 +615,17 @@ place, faced `agent-shell-math-renderer' and frozen."
     (when-let* ((close (plist-get block :close))
                 ((> close 0))
                 (start (plist-get block :start))
+                ;; Skip a block we already rendered — it carries our
+                ;; `-source' stash.  Matters on the overlay path, which
+                ;; re-scans the whole fragment every streaming chunk;
+                ;; re-applying a finished block is pure redundancy there.
+                ;; A no-op on the in-place path, where the watermark means a
+                ;; rendered block is never re-seen.  Keyed on `-source' (set
+                ;; only by an actual render) and NOT
+                ;; `agent-shell-markdown-frozen' (also set to protect a
+                ;; still-open block), so a block frozen while streaming still
+                ;; renders once its closer arrives.
+                ((not (get-text-property start 'agent-shell-math-renderer-source)))
                 (end (plist-get block :end))
                 (latex (string-trim
                         (buffer-substring-no-properties

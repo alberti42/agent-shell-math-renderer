@@ -828,6 +828,53 @@ y = \\(x\\)
                     "\\[E=mc^2\\]")
                    '(("\\[E=mc^2\\]" nil))))))
 
+;;; Skip-guard: `--style-blocks' does not re-apply already-rendered blocks
+;;
+;; Under the overlay renderer the whole fragment is re-scanned on every
+;; streaming chunk, so `--style-blocks' re-detects finished equations.  The
+;; guard makes it skip a block already carrying `agent-shell-math-renderer-source'.
+;; These tests pin both directions, because the feature is silent — a
+;; regression would just quietly re-apply (guard never fires) or quietly drop
+;; a real render (guard fires when it must not), neither visible in output.
+
+(ert-deftest agent-shell-math-renderer-style-blocks-skips-rendered ()
+  ;; Second `--style-blocks' pass over the same buffer must NOT re-apply a
+  ;; block it already rendered — the guard fires on the `-source' stash.
+  (agent-shell-math-renderer-tests--enabled
+    (with-temp-buffer
+      (insert "\\[E=mc^2\\]")
+      (let ((apply-count 0)
+            (orig (symbol-function 'agent-shell-math-renderer--apply-region)))
+        (cl-letf (((symbol-function 'agent-shell-math-renderer--apply-region)
+                   (lambda (&rest args)
+                     (cl-incf apply-count)
+                     (apply orig args))))
+          ;; First pass renders it (stashes `-source'); second must skip.
+          (agent-shell-math-renderer--style-blocks :avoid-ranges [])
+          (agent-shell-math-renderer--style-blocks :avoid-ranges []))
+        (should (= apply-count 1))
+        ;; Sanity: it really did render on the first pass.
+        (should (equal (get-text-property (point-min)
+                                          'agent-shell-math-renderer-source)
+                       "E=mc^2"))))))
+
+(ert-deftest agent-shell-math-renderer-style-blocks-renders-frozen-without-source ()
+  ;; A block marked `agent-shell-markdown-frozen' but NOT yet rendered — the
+  ;; state the hook leaves on a still-open block while it streams — must
+  ;; still render once its closer arrives.  This is why the guard keys on
+  ;; `agent-shell-math-renderer-source' (set only by a real render) and not
+  ;; on `frozen': keying on `frozen' here would wrongly skip it and the
+  ;; equation would never render (a silent break of the in-place path).
+  (agent-shell-math-renderer-tests--enabled
+    (with-temp-buffer
+      (insert "\\[E=mc^2\\]")
+      (put-text-property (point-min) (point-max)
+                         'agent-shell-markdown-frozen t)
+      (agent-shell-math-renderer--style-blocks :avoid-ranges [])
+      (should (equal (get-text-property (point-min)
+                                        'agent-shell-math-renderer-source)
+                     "E=mc^2")))))
+
 (provide 'agent-shell-math-renderer-tests)
 
 ;;; agent-shell-math-renderer-tests.el ends here
