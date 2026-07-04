@@ -828,6 +828,24 @@ y = \\(x\\)
                     "\\[E=mc^2\\]")
                    '(("\\[E=mc^2\\]" nil))))))
 
+(ert-deftest agent-shell-math-renderer-markdown-overlays-put-renders-and-returns ()
+  ;; The ready-made drop-in renders math AND returns `markdown-overlays-put's
+  ;; result alist (so it honors the overlay renderer's return contract).
+  ;; Exercises the real function end to end — the lazy `require', the dynamic
+  ;; binding of the `markdown-overlays-*' vars, and the bridge call.
+  (agent-shell-math-renderer-tests--enabled
+    (with-temp-buffer
+      (insert "\\[E=mc^2\\]")
+      (let ((result (agent-shell-math-renderer-markdown-overlays-put
+                     :render-images t :highlight-blocks t)))
+        ;; Math rendered: the block carries our source stash.
+        (should (equal (get-text-property (point-min)
+                                          'agent-shell-math-renderer-source)
+                       "E=mc^2"))
+        ;; Returned value is the overlay renderer's contract alist.
+        (should (assq 'avoided-ranges result))
+        (should (assq 'source-blocks result))))))
+
 ;;; Skip-guard: `--style-blocks' does not re-apply already-rendered blocks
 ;;
 ;; Under the overlay renderer the whole fragment is re-scanned on every

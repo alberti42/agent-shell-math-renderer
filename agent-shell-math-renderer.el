@@ -1329,22 +1329,24 @@ renderer's source-block descriptors)."
 (defun agent-shell-math-renderer-render-overlays (&optional overlays-result)
   "Render LaTeX math in the current narrowed buffer, for the overlay renderer.
 
-This is the entry point for agent-shell's overlay markdown renderer
-\(`markdown-overlays-put'), which — unlike the in-place renderer — does not
-run `agent-shell-markdown-render-functions', so the package's normal render
-hook never fires.  Call it from a custom
-`agent-shell-markdown-render-function' wrapper, immediately after
-`markdown-overlays-put', passing that call's return value:
+This is the low-level entry point for agent-shell's overlay markdown
+renderer (`markdown-overlays-put'), which — unlike the in-place renderer —
+does not run `agent-shell-markdown-render-functions', so the package's normal
+render hook never fires.  Most users want the ready-made drop-in
+`agent-shell-math-renderer-markdown-overlays-put' instead (just set
+`agent-shell-markdown-render-function' to it); call this directly only from a
+*custom* overlay wrapper, immediately after `markdown-overlays-put', passing
+that call's return value:
 
   (cl-defun my/render (&key render-images highlight-blocks &allow-other-keys)
-    (let ((markdown-overlays-render-images render-images)
-          (markdown-overlays-highlight-blocks highlight-blocks))
-      (prog1 (markdown-overlays-put)
-        (agent-shell-math-renderer-render-overlays))))
+    (let* ((markdown-overlays-render-images render-images)
+           (markdown-overlays-highlight-blocks highlight-blocks)
+           (result (markdown-overlays-put)))
+      (agent-shell-math-renderer-render-overlays result)
+      result))
 
-wrapping the result with `prog1' so the wrapper still returns what
-`markdown-overlays-put' returned.  OVERLAYS-RESULT is that alist; two keys
-are read:
+returning what `markdown-overlays-put' returned so the wrapper honors that
+renderer's contract.  OVERLAYS-RESULT is that alist; two keys are read:
 
   - `avoided-ranges' — the code / inline-code / table spans the overlay
     renderer protected.  Used verbatim as the math avoid-ranges, so math is
@@ -1361,8 +1363,8 @@ Unlike the in-place render hook, this needs no watermark and freezes no
 still-open block: the overlay renderer re-scans the whole (narrowed)
 fragment on every streaming chunk, so an equation that is still streaming is
 simply left unrendered this pass and picked up once it closes, and an
-already-rendered (frozen) region is re-detected but idempotently re-applied
-from cache."
+already-rendered region is re-detected but skipped by each pass (see
+`agent-shell-math-renderer--style-blocks')."
   (when agent-shell-math-renderer-enabled
     (let ((avoid-ranges (agent-shell-markdown-sort-ranges
                          (map-elt overlays-result 'avoided-ranges))))
@@ -1383,6 +1385,53 @@ from cache."
       ;; pass because they edit the buffer.
       (dolist (block (reverse (map-elt overlays-result 'source-blocks)))
         (agent-shell-math-renderer--render-overlay-fence block)))))
+
+;; The drop-in below leans on shell-maker's `markdown-overlays', which it
+;; `require's lazily at call time — a *soft* dependency, kept off the
+;; top-level require list on purpose: (a) users on the default in-place
+;; renderer never need it, and (b) agent-shell is itself phasing out its own
+;; `markdown-overlays' dependency, so hard-wiring it here would tie us to
+;; something upstream is shedding.  Forward-declare what the drop-in touches
+;; so the byte-compiler stays quiet without that hard require.
+(declare-function markdown-overlays-put "markdown-overlays")
+(defvar markdown-overlays-render-images)
+(defvar markdown-overlays-highlight-blocks)
+
+;;;###autoload
+(cl-defun agent-shell-math-renderer-markdown-overlays-put
+    (&key render-images highlight-blocks &allow-other-keys)
+  "Overlay markdown renderer that also renders LaTeX math.
+
+A ready-made drop-in value for `agent-shell-markdown-render-function'
+\(agent-shell's overlay-renderer slot).  Enable the overlay renderer *with*
+math in one line:
+
+  (setq agent-shell-markdown-render-function
+        #\\='agent-shell-math-renderer-markdown-overlays-put)
+
+It runs shell-maker's `markdown-overlays-put' (which leaves the buffer text
+as raw markdown — so region + \\[kill-ring-save] yields verbatim markdown)
+and then `agent-shell-math-renderer-render-overlays' on its result, so LaTeX
+math renders on this path too.  The overlay renderer runs no
+`agent-shell-markdown-render-functions' hook, so the package's normal render
+hook cannot fire here — this is how math gets in.
+
+RENDER-IMAGES and HIGHLIGHT-BLOCKS are agent-shell's renderer-agnostic
+keys, bound to the `markdown-overlays-*' variables the engine reads; any
+other keys are ignored.  Returns what `markdown-overlays-put' returns, so it
+honors that renderer's return contract.
+
+This wraps `markdown-overlays-put' (shell-maker) directly rather than
+agent-shell's own `agent-shell--markdown-overlays-put', which upstream has
+deprecated — so it keeps working once that wrapper is removed.  If you need
+to customize the overlay call further, skip this and call
+`agent-shell-math-renderer-render-overlays' from your own wrapper instead."
+  (require 'markdown-overlays)
+  (let* ((markdown-overlays-render-images render-images)
+         (markdown-overlays-highlight-blocks highlight-blocks)
+         (result (markdown-overlays-put)))
+    (agent-shell-math-renderer-render-overlays result)
+    result))
 
 (provide 'agent-shell-math-renderer)
 
