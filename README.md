@@ -221,7 +221,9 @@ For a while the package *also* supported the overlay renderer, via a drop-in
 `agent-shell-markdown-render-function` (`…-markdown-overlays-put`) — implemented
 and verified to work, documented in commit
 [`557e8af`](https://github.com/alberti42/agent-shell-math-renderer/commit/557e8af).
-It has since been **removed**, because:
+It was **removed** in commit
+[`d5ba08c`](https://github.com/alberti42/agent-shell-math-renderer/commit/d5ba08c),
+because:
 
 - The overlay renderer is **deprecated** upstream — agent-shell is moving off
   its `markdown-overlays` / `shell-maker` dependency.
