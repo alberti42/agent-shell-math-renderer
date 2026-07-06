@@ -592,13 +592,6 @@ cached, otherwise once an async compile finishes).  Blocks inside
 any of AVOID-RANGES (typically fenced code) are left untouched, as
 is an empty block.
 
-A block already carrying `agent-shell-math-renderer-source' (one this
-pass rendered on an earlier call) is skipped, so re-running over the
-same buffer — as the overlay renderer does on every streaming chunk —
-does not re-apply finished equations.  Re-rendering for a theme / font
-change goes through `agent-shell-math-renderer-refresh' instead, which
-walks the `-source' regions directly and never calls this pass.
-
 Adds only text properties (no insert / delete), so the block
 positions returned by `agent-shell-math-renderer--blocks' stay
 valid while iterating.
@@ -615,17 +608,6 @@ place, faced `agent-shell-math-renderer' and frozen."
     (when-let* ((close (plist-get block :close))
                 ((> close 0))
                 (start (plist-get block :start))
-                ;; Skip a block we already rendered — it carries our
-                ;; `-source' stash.  Matters on the overlay path, which
-                ;; re-scans the whole fragment every streaming chunk;
-                ;; re-applying a finished block is pure redundancy there.
-                ;; A no-op on the in-place path, where the watermark means a
-                ;; rendered block is never re-seen.  Keyed on `-source' (set
-                ;; only by an actual render) and NOT
-                ;; `agent-shell-markdown-frozen' (also set to protect a
-                ;; still-open block), so a block frozen while streaming still
-                ;; renders once its closer arrives.
-                ((not (get-text-property start 'agent-shell-math-renderer-source)))
                 (end (plist-get block :end))
                 (latex (string-trim
                         (buffer-substring-no-properties
@@ -1182,10 +1164,8 @@ newline just inside END (present unless the closing fence is the buffer's
 last, newline-less line) is kept outside the frozen math region so following
 content stays on its own line.
 
-Shared by both integration paths: `agent-shell-math-renderer--render-hook'
-\(the in-place renderer, START/END from agent-shell-markdown's `:block'
-positions) and `agent-shell-math-renderer-render-overlays' (the overlay
-renderer, START/END from `markdown-overlays-put's source-block ranges)."
+Called from `agent-shell-math-renderer--render-hook' with START/END from
+agent-shell-markdown's `:block' positions."
   (save-excursion
     (goto-char start)
     (let ((trailing-newline (eq (char-before end) ?\n)))
@@ -1262,176 +1242,6 @@ needs streaming protection, nil otherwise."
 
 (add-hook 'agent-shell-markdown-render-functions
           #'agent-shell-math-renderer--render-hook)
-
-;;; Integration with the overlay renderer (`markdown-overlays-put')
-
-;; agent-shell ships two markdown renderers, selected by
-;; `agent-shell-markdown-render-function':
-;;
-;;   - the in-place renderer (`agent-shell-markdown-replace-markup', the
-;;     default) rewrites markup into the buffer and runs
-;;     `agent-shell-markdown-render-functions' — the hook above.
-;;
-;;   - the overlay renderer (`agent-shell--markdown-overlays-put', wrapping
-;;     `markdown-overlays-put' from shell-maker) leaves the buffer text as
-;;     raw markdown and only overlays styling — good for verbatim copy — but
-;;     does NOT run `agent-shell-markdown-render-functions', so the hook
-;;     above never fires and no math is rendered.
-;;
-;; The function below is the bridge for that second path.  Rather than
-;; attaching to a hook (the overlay renderer offers none), it is meant to be
-;; called from a custom `agent-shell-markdown-render-function' wrapper right
-;; after `markdown-overlays-put', reusing the alist that call returns so we
-;; don't re-scan the buffer for code / fenced blocks.
-;;
-;; This is the one place the package touches shell-maker's overlay renderer;
-;; it depends on the documented return contract of `markdown-overlays-put'
-;; (its `avoided-ranges' and `source-blocks' keys), nothing more.  Our SVG is
-;; applied as a `display' text property, and `markdown-overlays-remove' only
-;; clears overlays tagged `(category markdown-overlays)', so re-running the
-;; overlay renderer on each streaming chunk leaves our math untouched.
-
-(defun agent-shell-math-renderer--render-overlay-fence (block)
-  "Render a `markdown-overlays-put' source BLOCK as display math, when apt.
-
-BLOCK is one entry of the `source-blocks' list `markdown-overlays-put'
-returns: an alist whose `start' / `end' / `language' / `body' values are
-each a (BEG . END) cons over the buffer (or nil for a missing language).
-When BLOCK is a complete math-language fence (see
-`agent-shell-math-renderer-fence-languages') with a non-empty body and is
-not already frozen, it is rewritten to `\\[...\\]' and rendered via
-`agent-shell-math-renderer--rewrite-fenced-block'; otherwise BLOCK is left
-untouched.
-
-The overlay renderer only matches closed fences, so BLOCK is always
-complete (there is no `:complete' flag to check, unlike the in-place
-renderer's source-block descriptors)."
-  (when-let* ((lang-range (map-elt block 'language))
-              (lang (buffer-substring-no-properties (car lang-range)
-                                                    (cdr lang-range)))
-              ((agent-shell-math-renderer--fence-language-p lang))
-              (body-range (map-elt block 'body))
-              (latex (string-trim
-                      (buffer-substring-no-properties (car body-range)
-                                                      (cdr body-range))))
-              ((not (string-empty-p latex)))
-              (start (car (map-elt block 'start)))
-              ;; The `end' range's cdr sits just past the closing backticks,
-              ;; on the fence's trailing newline (or `point-max').  That is
-              ;; exactly the block end `--rewrite-fenced-block' expects: it
-              ;; deletes up to there and the leftover newline stays after the
-              ;; inserted `\]', keeping following content on its own line.
-              (end (cdr (map-elt block 'end)))
-              ((not (get-text-property start 'agent-shell-markdown-frozen))))
-    (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
-
-;;;###autoload
-(defun agent-shell-math-renderer-render-overlays (&optional overlays-result)
-  "Render LaTeX math in the current narrowed buffer, for the overlay renderer.
-
-This is the low-level entry point for agent-shell's overlay markdown
-renderer (`markdown-overlays-put'), which — unlike the in-place renderer —
-does not run `agent-shell-markdown-render-functions', so the package's normal
-render hook never fires.  Most users want the ready-made drop-in
-`agent-shell-math-renderer-markdown-overlays-put' instead (just set
-`agent-shell-markdown-render-function' to it); call this directly only from a
-*custom* overlay wrapper, immediately after `markdown-overlays-put', passing
-that call's return value:
-
-  (cl-defun my/render (&key render-images highlight-blocks &allow-other-keys)
-    (let* ((markdown-overlays-render-images render-images)
-           (markdown-overlays-highlight-blocks highlight-blocks)
-           (result (markdown-overlays-put)))
-      (agent-shell-math-renderer-render-overlays result)
-      result))
-
-returning what `markdown-overlays-put' returned so the wrapper honors that
-renderer's contract.  OVERLAYS-RESULT is that alist; two keys are read:
-
-  - `avoided-ranges' — the code / inline-code / table spans the overlay
-    renderer protected.  Used verbatim as the math avoid-ranges, so math is
-    never detected inside code and stays consistent with what the overlay
-    renderer treated as verbatim.
-  - `source-blocks' — the fenced code blocks, scanned for ```math /
-    ```latex / ```tex to render as display math.
-
-When OVERLAYS-RESULT is nil the passes still run, but with no avoid-ranges
-and no fenced math — so pass the value in practice.  A no-op when
-`agent-shell-math-renderer-enabled' is nil.
-
-Unlike the in-place render hook, this needs no watermark and freezes no
-still-open block: the overlay renderer re-scans the whole (narrowed)
-fragment on every streaming chunk, so an equation that is still streaming is
-simply left unrendered this pass and picked up once it closes, and an
-already-rendered region is re-detected but skipped by each pass (see
-`agent-shell-math-renderer--style-blocks')."
-  (when agent-shell-math-renderer-enabled
-    (let ((avoid-ranges (agent-shell-markdown-sort-ranges
-                         (map-elt overlays-result 'avoided-ranges))))
-      ;; Delimiter display math (`$$...$$', `\[...\]').  Text properties
-      ;; only — no buffer edits — so AVOID-RANGES stays valid for the inline
-      ;; pass below.
-      (agent-shell-math-renderer--style-blocks :avoid-ranges avoid-ranges)
-      ;; Inline `\(...\)': avoid code / inline-code / tables (AVOID-RANGES)
-      ;; plus the display-math blocks just detected.
-      (when agent-shell-math-renderer-render-inline
-        (agent-shell-math-renderer--style-inline
-         :avoid-ranges (agent-shell-markdown-sort-ranges
-                        avoid-ranges
-                        (agent-shell-math-renderer--block-ranges avoid-ranges))))
-      ;; Fenced math (```math / ```latex / ```tex): rewrite to `\[...\]' and
-      ;; render.  Bottom-up (reverse) so rewriting one block never shifts the
-      ;; positions of earlier, not-yet-processed ones.  These are the last
-      ;; pass because they edit the buffer.
-      (dolist (block (reverse (map-elt overlays-result 'source-blocks)))
-        (agent-shell-math-renderer--render-overlay-fence block)))))
-
-;; The drop-in below leans on shell-maker's `markdown-overlays', which it
-;; `require's lazily at call time — a *soft* dependency, kept off the
-;; top-level require list on purpose: (a) users on the default in-place
-;; renderer never need it, and (b) agent-shell is itself phasing out its own
-;; `markdown-overlays' dependency, so hard-wiring it here would tie us to
-;; something upstream is shedding.  Forward-declare what the drop-in touches
-;; so the byte-compiler stays quiet without that hard require.
-(declare-function markdown-overlays-put "markdown-overlays")
-(defvar markdown-overlays-render-images)
-(defvar markdown-overlays-highlight-blocks)
-
-;;;###autoload
-(cl-defun agent-shell-math-renderer-markdown-overlays-put
-    (&key render-images highlight-blocks &allow-other-keys)
-  "Overlay markdown renderer that also renders LaTeX math.
-
-A ready-made drop-in value for `agent-shell-markdown-render-function'
-\(agent-shell's overlay-renderer slot).  Enable the overlay renderer *with*
-math in one line:
-
-  (setq agent-shell-markdown-render-function
-        #\\='agent-shell-math-renderer-markdown-overlays-put)
-
-It runs shell-maker's `markdown-overlays-put' (which leaves the buffer text
-as raw markdown — so region + \\[kill-ring-save] yields verbatim markdown)
-and then `agent-shell-math-renderer-render-overlays' on its result, so LaTeX
-math renders on this path too.  The overlay renderer runs no
-`agent-shell-markdown-render-functions' hook, so the package's normal render
-hook cannot fire here — this is how math gets in.
-
-RENDER-IMAGES and HIGHLIGHT-BLOCKS are agent-shell's renderer-agnostic
-keys, bound to the `markdown-overlays-*' variables the engine reads; any
-other keys are ignored.  Returns what `markdown-overlays-put' returns, so it
-honors that renderer's return contract.
-
-This wraps `markdown-overlays-put' (shell-maker) directly rather than
-agent-shell's own `agent-shell--markdown-overlays-put', which upstream has
-deprecated — so it keeps working once that wrapper is removed.  If you need
-to customize the overlay call further, skip this and call
-`agent-shell-math-renderer-render-overlays' from your own wrapper instead."
-  (require 'markdown-overlays)
-  (let* ((markdown-overlays-render-images render-images)
-         (markdown-overlays-highlight-blocks highlight-blocks)
-         (result (markdown-overlays-put)))
-    (agent-shell-math-renderer-render-overlays result)
-    result))
 
 (provide 'agent-shell-math-renderer)
 

@@ -62,10 +62,10 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 
 ## Installation
 
-The package integrates with `agent-shell` through public API only — no
-patching, no advice. With agent-shell's default (in-place) renderer, math
-renders automatically once installed; the overlay renderer needs one extra
-line — see [Choosing a renderer](#choosing-a-renderer-in-place-vs-overlay).
+The package hooks into `agent-shell` through its public
+`agent-shell-markdown-render-functions` extension point — no patching, no
+advice. With agent-shell's default (in-place) renderer, math renders
+automatically once installed.
 
 ### `use-package` + `:vc` (Emacs 30+)
 
@@ -100,60 +100,6 @@ For Emacs 29, where `use-package` has no `:vc` keyword:
 (require 'agent-shell-math-renderer)
 (setq agent-shell-math-renderer-enabled t)
 ```
-
-## Choosing a renderer: in-place vs overlay
-
-`agent-shell` can render an agent's markdown two ways, selected by the
-`agent-shell-markdown-render-function` option:
-
-- **In-place** (`agent-shell-markdown-replace-markup`) — agent-shell's default.
-  - Rewrites the markup *into* the buffer: `**bold**`, headings, links, list
-    bullets, etc. are transformed in place.
-  - The actively-developed default; typically the more polished path, and more
-    efficient while streaming (it renders incrementally, only the new tail each
-    chunk).
-  - **Trade-off:** the buffer no longer holds the original markdown, so selecting
-    and copying gives back the *stripped* text — not the agent's markdown source.
-
-- **Overlay** (wraps `markdown-overlays-put` from `shell-maker`).
-  - Leaves the buffer text as the **raw markdown** and only *overlays* the
-    styling on top.
-  - So selecting a region and copying (`M-w`) yields **faithful, markdown-valid**
-    text you can paste straight into a `.md` file.
-  - Re-scans the whole message each streaming chunk rather than incrementally, so
-    it does a bit more redundant work (in practice negligible).
-
-In short: pick **in-place** for the nicest rendering, **overlay** if a
-copyable, verbatim copy of the agent's output matters more.
-
-### Where this package fits
-
-- **Under the in-place renderer (the default), math just works.** The package
-  attaches to agent-shell's render hook automatically — install it, set
-  `agent-shell-math-renderer-enabled` to `t`, and you're done. Nothing else to
-  configure.
-- **The overlay renderer runs no such hook**, so it can't be extended the same
-  way. This package therefore ships a drop-in that *is* the overlay renderer
-  **plus** math rendering — `agent-shell-math-renderer-markdown-overlays-put`.
-  Select it explicitly:
-
-  ```elisp
-  (use-package agent-shell-math-renderer
-    ;; …install as above…
-    :after agent-shell
-    :config
-    (setq agent-shell-math-renderer-enabled t)
-    ;; Overlay renderer (verbatim copy) + math, in one function:
-    (setq agent-shell-markdown-render-function
-          #'agent-shell-math-renderer-markdown-overlays-put))
-  ```
-
-  The drop-in wraps `shell-maker`'s `markdown-overlays-put` directly (not
-  agent-shell's own `agent-shell--markdown-overlays-put`, which upstream has
-  deprecated), so it keeps working the day that wrapper is removed. If you
-  already maintain a custom overlay wrapper, don't use the drop-in — instead
-  call `agent-shell-math-renderer-render-overlays` on the value your
-  `markdown-overlays-put` call returns.
 
 ## Usage
 
@@ -248,13 +194,9 @@ non-graphical display (behind the image on a graphical one).
 
 ## How it works
 
-- Under the in-place renderer, the package adds
-  `agent-shell-math-renderer--render-hook` to
+- The package adds `agent-shell-math-renderer--render-hook` to
   `agent-shell-markdown-render-functions`; agent-shell's markdown renderer
-  calls it once per streaming chunk, after its own passes. Under the overlay
-  renderer (which runs no such hook), the drop-in
-  `agent-shell-math-renderer-markdown-overlays-put` runs the same rendering on
-  the output of `markdown-overlays-put` instead.
+  calls it once per streaming chunk, after its own passes.
 - Each equation is compiled by a standalone LaTeX document → DVI (`latex`) →
   SVG (`dvisvgm --no-fonts --exact-bbox --currentcolor`). Compilation is
   **asynchronous** and off the output path, so its latency is masked by the
@@ -266,27 +208,33 @@ non-graphical display (behind the image on a graphical one).
 - The raw LaTeX is kept under the image via a `display` property, so
   selection/copy/save give back the source.
 
-## Gotchas
+## History: experimental overlay-renderer support (removed)
 
-- **Using the overlay renderer? Keep `markdown-overlays-render-latex` off.** It
-  is an experimental `shell-maker` option (off by default — leave it that way)
-  that renders LaTeX on the overlay path via Org's `org-format-latex`. If you
-  enable it *and* select this package's overlay renderer, both will try to
-  render the same equations. There's no need — this package's overlay renderer
-  already covers it. (The in-place renderer has no such option, so this concerns
-  only the overlay path.)
+`agent-shell` ships two markdown renderers, chosen by
+`agent-shell-markdown-render-function`: the **in-place** renderer (the default,
+`agent-shell-markdown-replace-markup`), which rewrites markup into the buffer,
+and the older **overlay** renderer (`markdown-overlays-put` from `shell-maker`),
+which leaves the buffer text as raw markdown. This package targets the in-place
+renderer, where math rendering works automatically.
 
-- **How this package relates to that option.** `markdown-overlays-render-latex`
-  grew out of an early experiment
-  ([xenodium/agent-shell#117](https://github.com/xenodium/agent-shell/issues/117))
-  that previewed equations with Org's `org-format-latex` — a neat, minimal
-  approach if you already live in Org. This package takes a standalone route (no
-  Org dependency): crisp vector SVGs that match the buffer font, re-tint to the
-  current theme with no recompile, are cached on disk, and cover inline `\(…\)`,
-  ```` ```math ````/```` ```latex ```` fences, and `$$…$$` / `\[…\]` display
-  math. See
-  [xenodium/agent-shell#117](https://github.com/xenodium/agent-shell/issues/117)
-  for the background and trade-offs.
+For a while the package *also* supported the overlay renderer, via a drop-in
+`agent-shell-markdown-render-function` (`…-markdown-overlays-put`) — implemented
+and verified to work, documented in commit
+[`557e8af`](https://github.com/alberti42/agent-shell-math-renderer/commit/557e8af).
+It has since been **removed**, because:
+
+- The overlay renderer is **deprecated** upstream — agent-shell is moving off
+  its `markdown-overlays` / `shell-maker` dependency.
+- Its one advantage — a copyable, verbatim copy of the agent's markdown — is now
+  covered on the default in-place renderer: `M-x agent-shell-copy-as-markdown`
+  reconstructs the original markdown (`**bold**`, headings, links, fenced code
+  with its ```` ``` ```` fences, tables) from any region
+  ([xenodium/agent-shell#641](https://github.com/xenodium/agent-shell/issues/641)).
+
+So the in-place renderer now gives you both faithful markdown copy *and* math,
+with no deprecated dependency — leaving no reason to support the overlay
+renderer. This note is kept only for anyone who still relies on it; the
+implementation is preserved in git history at `557e8af`.
 
 ## Credits
 
