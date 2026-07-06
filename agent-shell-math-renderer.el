@@ -468,6 +468,40 @@ returns ((1 . 11))."
             (cons (plist-get block :start) (plist-get block :end)))
           (agent-shell-math-renderer--blocks avoid-ranges)))
 
+(defun agent-shell-math-renderer--previous-open-block-start ()
+  "Return start of a pending display block before the narrowed region.
+
+`agent-shell' appends streamed chunks and renders only the newly
+inserted body text.  If a `\\=\\[...\\]' or `$$...$$' block opens in one
+append and closes in a later append, the current narrowing can start
+after the opener.  Detect the frozen, not-yet-rendered prefix left by
+this renderer so the hook can scan back to the opener."
+  (let ((narrow-start (point-min)))
+    (save-restriction
+      (widen)
+      (when (> narrow-start (point-min))
+        (let ((previous (1- narrow-start)))
+          (when (and (get-text-property previous 'agent-shell-markdown-frozen)
+                     (not (get-text-property previous
+                                             'agent-shell-math-renderer-source)))
+            (let* ((run-start (or (previous-single-property-change
+                                   narrow-start 'agent-shell-markdown-frozen
+                                   nil (point-min))
+                                  (point-min)))
+                   (face (or (get-text-property run-start 'font-lock-face)
+                             (get-text-property run-start 'face))))
+              (when (and (< run-start narrow-start)
+                         (not (eq face 'agent-shell-markdown-source-block))
+                         (not (and (listp face)
+                                   (memq 'agent-shell-markdown-source-block
+                                         face))))
+                (save-restriction
+                  (narrow-to-region run-start narrow-start)
+                  (when-let* ((block (car (agent-shell-math-renderer--blocks)))
+                              ((= (plist-get block :start) run-start))
+                              ((zerop (plist-get block :close))))
+                    run-start))))))))))
+
 (defun agent-shell-math-renderer--inline-spans (&optional avoid-ranges)
   "Return inline-math spans `\\(...\\)' in the current buffer.
 
@@ -1195,48 +1229,54 @@ needs streaming protection, nil otherwise."
                        (cons (map-nested-elt sb '(:block :start))
                              (map-nested-elt sb '(:block :end))))
                      source-blocks)))
+           (scan-start (agent-shell-math-renderer--previous-open-block-start))
+           (scan-end (point-max))
            (watermark nil))
-      (agent-shell-math-renderer--style-blocks :avoid-ranges source-ranges)
-      (let ((open-block (seq-find (lambda (b) (zerop (plist-get b :close)))
-                                  (agent-shell-math-renderer--blocks source-ranges))))
-        (when open-block
-          (setq watermark (plist-get open-block :start))
-          (put-text-property (plist-get open-block :start) (plist-get open-block :end)
-                             'agent-shell-markdown-frozen t)))
-      ;; Inline `\(...\)': avoid code fences, display-math blocks, and
-      ;; inline `code' spans.  The inline-code ranges come from the hook
-      ;; `context' (upstream computes them before the render functions
-      ;; run), so a literal `\(x\)' the agent meant as code is not
-      ;; rendered as math.
-      (when agent-shell-math-renderer-render-inline
-        (let ((math-ranges (agent-shell-markdown-sort-ranges
-                            source-ranges
-                            (agent-shell-math-renderer--block-ranges source-ranges)
-                            inline-code-ranges)))
-          (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
-      ;; Fenced math (```math / ```latex / ```tex): replace the whole
-      ;; block — backtick fences included — with the LaTeX body wrapped
-      ;; in `\[...\]' display delimiters, then overlay the equation image
-      ;; on that.  Dropping the fences (rather than keeping them under the
-      ;; image) means a copy of the rendered region yields renderable
-      ;; LaTeX, not markdown backticks — matching the `$$...$$' / `\[...\]'
-      ;; delimiter paths, which likewise keep their (LaTeX) delimiters.
-      ;; Iterate bottom-up so replacing one block never shifts the
-      ;; positions of earlier, not-yet-processed ones.
-      (dolist (sb (reverse source-blocks))
-        (when-let* ((lang (map-elt sb :language))
-                    ((agent-shell-math-renderer--fence-language-p lang))
-                    ((map-elt sb :complete))
-                    (start (map-nested-elt sb '(:block :start)))
-                    (end (map-nested-elt sb '(:block :end)))
-                    ((not (get-text-property start 'agent-shell-markdown-frozen)))
-                    (body (map-elt sb :body))
-                    (latex (string-trim body))
-                    ((not (string-empty-p latex))))
-          ;; The block's :end sits at the start of the line after the
-          ;; closing fence, so a trailing newline is folded in and kept out
-          ;; of the frozen region (see `--rewrite-fenced-block').
-          (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
+      (save-restriction
+        (when scan-start
+          (widen)
+          (narrow-to-region scan-start scan-end))
+        (agent-shell-math-renderer--style-blocks :avoid-ranges source-ranges)
+        (let ((open-block (seq-find (lambda (b) (zerop (plist-get b :close)))
+                                    (agent-shell-math-renderer--blocks source-ranges))))
+          (when open-block
+            (setq watermark (plist-get open-block :start))
+            (put-text-property (plist-get open-block :start) (plist-get open-block :end)
+                               'agent-shell-markdown-frozen t)))
+        ;; Inline `\(...\)': avoid code fences, display-math blocks, and
+        ;; inline `code' spans.  The inline-code ranges come from the hook
+        ;; `context' (upstream computes them before the render functions
+        ;; run), so a literal `\(x\)' the agent meant as code is not
+        ;; rendered as math.
+        (when agent-shell-math-renderer-render-inline
+          (let ((math-ranges (agent-shell-markdown-sort-ranges
+                              source-ranges
+                              (agent-shell-math-renderer--block-ranges source-ranges)
+                              inline-code-ranges)))
+            (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
+        ;; Fenced math (```math / ```latex / ```tex): replace the whole
+        ;; block — backtick fences included — with the LaTeX body wrapped
+        ;; in `\[...\]' display delimiters, then overlay the equation image
+        ;; on that.  Dropping the fences (rather than keeping them under the
+        ;; image) means a copy of the rendered region yields renderable
+        ;; LaTeX, not markdown backticks — matching the `$$...$$' / `\[...\]'
+        ;; delimiter paths, which likewise keep their (LaTeX) delimiters.
+        ;; Iterate bottom-up so replacing one block never shifts the
+        ;; positions of earlier, not-yet-processed ones.
+        (dolist (sb (reverse source-blocks))
+          (when-let* ((lang (map-elt sb :language))
+                      ((agent-shell-math-renderer--fence-language-p lang))
+                      ((map-elt sb :complete))
+                      (start (map-nested-elt sb '(:block :start)))
+                      (end (map-nested-elt sb '(:block :end)))
+                      ((not (get-text-property start 'agent-shell-markdown-frozen)))
+                      (body (map-elt sb :body))
+                      (latex (string-trim body))
+                      ((not (string-empty-p latex))))
+            ;; The block's :end sits at the start of the line after the
+            ;; closing fence, so a trailing newline is folded in and kept out
+            ;; of the frozen region (see `--rewrite-fenced-block').
+            (agent-shell-math-renderer--rewrite-fenced-block start end latex))))
       (when watermark
         (list (cons :watermark watermark))))))
 

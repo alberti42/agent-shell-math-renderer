@@ -123,14 +123,49 @@ $$ x $$
   ;; buffer until the closing `\\]' arrives, mirroring open `$$' /
   ;; open fences.
   (agent-shell-math-renderer-tests--enabled
-    (should (equal (agent-shell-markdown--deconstruct
-                    (agent-shell-markdown-convert
-                     "before **b**
+   (should (equal (agent-shell-markdown--deconstruct
+                   (agent-shell-markdown-convert
+                    "before **b**
 \\[ streaming **not bold**"))
-                   '(("before " nil)
-                     ("b" (agent-shell-markdown-bold))
-                     ("
+                  '(("before " nil)
+                    ("b" (agent-shell-markdown-bold))
+                    ("
 \\[ streaming **not bold**" nil))))))
+
+(ert-deftest agent-shell-math-renderer-open-bracket-math-renders-across-appends ()
+  ;; `agent-shell' appends streamed body chunks and renders only the new
+  ;; narrowed chunk.  A display block whose opener arrived in an earlier
+  ;; append still needs to render after the closer arrives.
+  (agent-shell-math-renderer-tests--enabled
+   (let (calls)
+     (cl-letf (((symbol-function 'agent-shell-math-renderer--render)
+                (lambda (_buffer _start _end latex &optional inline)
+                  (push (list latex inline) calls))))
+       (with-temp-buffer
+         (insert "before\n")
+         (let ((chunk-start (point)))
+           (insert "\\[\nI_")
+           (save-restriction
+             (narrow-to-region chunk-start (point-max))
+             (agent-shell-markdown-replace-markup)))
+         (let ((chunk-start (point)))
+           (insert "{\\mathrm{Spec}}\n= ")
+           (save-restriction
+             (narrow-to-region chunk-start (point-max))
+             (agent-shell-markdown-replace-markup)))
+         (let ((chunk-start (point)))
+           (insert "\\sum_\\pi x\n\\]\nafter")
+           (save-restriction
+             (narrow-to-region chunk-start (point-max))
+             (agent-shell-markdown-replace-markup)))
+         (goto-char (point-min))
+         (search-forward "\\[")
+         (let ((open (match-beginning 0)))
+           (should (equal (get-text-property
+                           open 'agent-shell-math-renderer-source)
+                          "I_{\\mathrm{Spec}}\n= \\sum_\\pi x"))
+           (should (equal (nreverse calls)
+                          '(("I_{\\mathrm{Spec}}\n= \\sum_\\pi x" nil))))))))))
 
 (ert-deftest agent-shell-math-renderer-math-delimiters-independent ()
   ;; `agent-shell-math-renderer-delimiters' toggles each style
