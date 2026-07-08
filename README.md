@@ -113,6 +113,16 @@ With it on, math in the agent's responses renders automatically as it streams.
 The text renders immediately and the image pops in when the (asynchronous)
 compile finishes; the on-disk cache makes every repeat instant.
 
+To also render math in submitted prompts, enable:
+
+```elisp
+(setq agent-shell-math-renderer-render-submitted-prompts t)
+```
+
+This option also requires `agent-shell-math-renderer-enabled`.  Submitted
+prompts use the same delimiter, inline-math, and fenced-math settings as agent
+responses.
+
 ### Enabling per project
 
 Prefer to render math only in some projects? Leave the global switch off and
@@ -177,6 +187,7 @@ All options live in the `agent-shell-math-renderer` customization group
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agent-shell-math-renderer-enabled` | `nil` | Master switch. Off → the renderer is a no-op. |
+| `agent-shell-math-renderer-render-submitted-prompts` | `nil` | Also render math in submitted user prompts when the master switch is on. |
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math" "latex" "tex")` | Fenced-code languages rendered as display math. `nil` leaves them as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |

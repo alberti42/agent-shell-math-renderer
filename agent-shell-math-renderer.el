@@ -46,12 +46,19 @@
 ;; rejected — this bounds detection and stops a stray delimiter from
 ;; swallowing the rest of a streaming response.
 ;;
-;; The renderer plugs into agent-shell only through the public hook
+;; Agent responses are rendered through
 ;; `agent-shell-markdown-render-functions': agent-shell's markdown
 ;; renderer calls `agent-shell-math-renderer--render-hook' once per
 ;; streaming chunk, after its own passes.  The hook styles the delimiter
 ;; and inline math, renders fenced math, and returns a watermark when an
 ;; unclosed block still needs streaming protection.
+;;
+;; When `agent-shell-math-renderer-render-submitted-prompts' is non-nil,
+;; submitted prompts are rendered after they are sent, using the same
+;; delimiter, inline-math, and fenced-math handling as agent responses.
+;; This path builds the same markdown context by calling agent-shell's
+;; private source-block and inline-code scanners; that dependency is
+;; isolated to `agent-shell-math-renderer--static-region-context'.
 ;;
 ;; Equations are typeset by compiling a standalone LaTeX document to DVI
 ;; (`latex') and converting it to SVG (`dvisvgm') — the same toolchain
@@ -68,6 +75,7 @@
 (require 'agent-shell)
 (require 'agent-shell-markdown)
 (require 'color)
+(require 'comint)
 (require 'map)
 (require 'org-faces)
 (require 'seq)
@@ -188,6 +196,25 @@ Inline `$...$' is deliberately NOT recognized: a lone `$' is far
 too common in prose, currency, and shell snippets to match safely.
 Only the unambiguous `\\(...\\)' form is detected; `$...$' support
 can be added later if agents prove to need it."
+  :type 'boolean
+  :safe #'booleanp
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-render-submitted-prompts nil
+  "When non-nil, render math in submitted user prompts.
+
+This option has an effect only when
+`agent-shell-math-renderer-enabled' is also non-nil.
+
+The usual delimiter and inline settings apply: prompts render
+`\\=\\[...\\]' / `$$...$$' according to
+`agent-shell-math-renderer-delimiters', and inline `\\(...\\)'
+according to `agent-shell-math-renderer-render-inline'.
+
+This uses agent-shell's existing `input-submitted' event and
+shell-maker/comint's `comint-last-input-start' /
+`comint-last-input-end' markers to find the prompt that was just
+submitted.  Rendering is deferred out of the submit command."
   :type 'boolean
   :safe #'booleanp
   :group 'agent-shell-math-renderer)
@@ -316,6 +343,9 @@ an equation renders.")
 (defvar-local agent-shell-math-renderer--present nil
   "Non-nil in a buffer that has rendered display-math regions.
 Lets `agent-shell-math-renderer-refresh' visit only relevant buffers.")
+
+(defvar-local agent-shell-math-renderer--prompt-subscription nil
+  "Subscription token for submitted-prompt rendering in this buffer.")
 
 (defun agent-shell-math-renderer--current-colors ()
   "Return the (FOREGROUND . BACKGROUND) equations should render for now.
@@ -1176,6 +1206,90 @@ agent-shell-markdown's `:block' positions."
           (agent-shell-math-renderer--apply-region
            (current-buffer) open close latex))))))
 
+(defun agent-shell-math-renderer--source-ranges (source-blocks)
+  "Return sorted block ranges for SOURCE-BLOCKS."
+  (agent-shell-markdown-sort-ranges
+   (mapcar (lambda (sb)
+             (cons (map-nested-elt sb '(:block :start))
+                   (map-nested-elt sb '(:block :end))))
+           source-blocks)))
+
+(defun agent-shell-math-renderer--static-region-context ()
+  "Return a render context for the current static narrowed region.
+
+This mirrors the context `agent-shell-markdown-replace-markup'
+passes to `agent-shell-markdown-render-functions', but without
+running the rest of the markdown renderer.  Submitted prompts are
+complete, static regions, so no watermark handling is needed.
+
+The source-block and inline-code scanners are private agent-shell
+helpers; this is intentionally isolated here so submitted prompts use
+the same in-place rendering context as streamed responses."
+  (let* ((source-blocks (agent-shell-markdown--source-blocks))
+         (source-ranges
+          (agent-shell-math-renderer--source-ranges source-blocks))
+         (inline-code-ranges
+          (agent-shell-markdown--inline-code-ranges
+           :avoid-ranges source-ranges)))
+    (list (cons :source-blocks source-blocks)
+          (cons :inline-code-ranges inline-code-ranges))))
+
+(defun agent-shell-math-renderer--render-context (context &optional streaming)
+  "Render math in CONTEXT.
+
+CONTEXT is the alist supplied by agent-shell's markdown renderer,
+or an equivalent alist built for a submitted prompt.  When
+STREAMING is non-nil, protect still-open display blocks and return
+a `:watermark' result for agent-shell."
+  (let* ((source-blocks (map-elt context :source-blocks))
+         (inline-code-ranges (map-elt context :inline-code-ranges))
+         (source-ranges
+          (agent-shell-math-renderer--source-ranges source-blocks))
+         (watermark nil))
+    (agent-shell-math-renderer--style-blocks :avoid-ranges source-ranges)
+    (when streaming
+      (let ((open-block (seq-find (lambda (b) (zerop (plist-get b :close)))
+                                  (agent-shell-math-renderer--blocks source-ranges))))
+        (when open-block
+          (setq watermark (plist-get open-block :start))
+          (put-text-property (plist-get open-block :start)
+                             (plist-get open-block :end)
+                             'agent-shell-markdown-frozen t))))
+    ;; Inline `\(...\)': avoid code fences, display-math blocks, and
+    ;; inline `code' spans.  The inline-code ranges come from CONTEXT,
+    ;; so a literal `\(x\)' meant as code is not rendered as math.
+    (when agent-shell-math-renderer-render-inline
+      (let ((math-ranges (agent-shell-markdown-sort-ranges
+                          source-ranges
+                          (agent-shell-math-renderer--block-ranges source-ranges)
+                          inline-code-ranges)))
+        (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
+    ;; Fenced math (```math / ```latex / ```tex): replace the whole
+    ;; block — backtick fences included — with the LaTeX body wrapped
+    ;; in `\[...\]' display delimiters, then overlay the equation image
+    ;; on that.  Dropping the fences (rather than keeping them under the
+    ;; image) means a copy of the rendered region yields renderable
+    ;; LaTeX, not markdown backticks — matching the `$$...$$' / `\[...\]'
+    ;; delimiter paths, which likewise keep their (LaTeX) delimiters.
+    ;; Iterate bottom-up so replacing one block never shifts the
+    ;; positions of earlier, not-yet-processed ones.
+    (dolist (sb (reverse source-blocks))
+      (when-let* ((lang (map-elt sb :language))
+                  ((agent-shell-math-renderer--fence-language-p lang))
+                  ((map-elt sb :complete))
+                  (start (map-nested-elt sb '(:block :start)))
+                  (end (map-nested-elt sb '(:block :end)))
+                  ((not (get-text-property start 'agent-shell-markdown-frozen)))
+                  (body (map-elt sb :body))
+                  (latex (string-trim body))
+                  ((not (string-empty-p latex))))
+        ;; The block's :end sits at the start of the line after the
+        ;; closing fence, so a trailing newline is folded in and kept out
+        ;; of the frozen region (see `--rewrite-fenced-block').
+        (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
+    (when watermark
+      (list (cons :watermark watermark)))))
+
 (defun agent-shell-math-renderer--render-hook (context)
   "Hook function for `agent-shell-markdown-render-functions'.
 Detect and render display-math blocks, inline math, and fenced
@@ -1186,61 +1300,74 @@ bodies, used to keep `\\(...\\)' inside a code span literal).
 Returns an alist with `:watermark' when an unclosed delimiter
 needs streaming protection, nil otherwise."
   (when agent-shell-math-renderer-enabled
-    (let* ((source-blocks (map-elt context :source-blocks))
-           (inline-code-ranges (map-elt context :inline-code-ranges))
-           (source-ranges
-            (agent-shell-markdown-sort-ranges
-             (mapcar (lambda (sb)
-                       (cons (map-nested-elt sb '(:block :start))
-                             (map-nested-elt sb '(:block :end))))
-                     source-blocks)))
-           (watermark nil))
-      (agent-shell-math-renderer--style-blocks :avoid-ranges source-ranges)
-      (let ((open-block (seq-find (lambda (b) (zerop (plist-get b :close)))
-                                  (agent-shell-math-renderer--blocks source-ranges))))
-        (when open-block
-          (setq watermark (plist-get open-block :start))
-          (put-text-property (plist-get open-block :start) (plist-get open-block :end)
-                             'agent-shell-markdown-frozen t)))
-      ;; Inline `\(...\)': avoid code fences, display-math blocks, and
-      ;; inline `code' spans.  The inline-code ranges come from the hook
-      ;; `context' (upstream computes them before the render functions
-      ;; run), so a literal `\(x\)' the agent meant as code is not
-      ;; rendered as math.
-      (when agent-shell-math-renderer-render-inline
-        (let ((math-ranges (agent-shell-markdown-sort-ranges
-                            source-ranges
-                            (agent-shell-math-renderer--block-ranges source-ranges)
-                            inline-code-ranges)))
-          (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
-      ;; Fenced math (```math / ```latex / ```tex): replace the whole
-      ;; block — backtick fences included — with the LaTeX body wrapped
-      ;; in `\[...\]' display delimiters, then overlay the equation image
-      ;; on that.  Dropping the fences (rather than keeping them under the
-      ;; image) means a copy of the rendered region yields renderable
-      ;; LaTeX, not markdown backticks — matching the `$$...$$' / `\[...\]'
-      ;; delimiter paths, which likewise keep their (LaTeX) delimiters.
-      ;; Iterate bottom-up so replacing one block never shifts the
-      ;; positions of earlier, not-yet-processed ones.
-      (dolist (sb (reverse source-blocks))
-        (when-let* ((lang (map-elt sb :language))
-                    ((agent-shell-math-renderer--fence-language-p lang))
-                    ((map-elt sb :complete))
-                    (start (map-nested-elt sb '(:block :start)))
-                    (end (map-nested-elt sb '(:block :end)))
-                    ((not (get-text-property start 'agent-shell-markdown-frozen)))
-                    (body (map-elt sb :body))
-                    (latex (string-trim body))
-                    ((not (string-empty-p latex))))
-          ;; The block's :end sits at the start of the line after the
-          ;; closing fence, so a trailing newline is folded in and kept out
-          ;; of the frozen region (see `--rewrite-fenced-block').
-          (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
-      (when watermark
-        (list (cons :watermark watermark))))))
+    (agent-shell-math-renderer--render-context context t)))
 
 (add-hook 'agent-shell-markdown-render-functions
           #'agent-shell-math-renderer--render-hook)
+
+;;; Submitted-prompt rendering
+
+(defun agent-shell-math-renderer--submitted-prompt-region ()
+  "Return markers around the most recently submitted comint input."
+  (when-let* (((boundp 'comint-last-input-start))
+              ((boundp 'comint-last-input-end))
+              ((markerp comint-last-input-start))
+              ((markerp comint-last-input-end))
+              (start (marker-position comint-last-input-start))
+              (end (marker-position comint-last-input-end))
+              ((< start end)))
+    (cons (copy-marker start)
+          (copy-marker end))))
+
+(defun agent-shell-math-renderer--render-submitted-prompt
+    (buffer start-marker end-marker)
+  "Render submitted prompt math in BUFFER from START-MARKER to END-MARKER."
+  (unwind-protect
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (when (and agent-shell-math-renderer-render-submitted-prompts
+                     agent-shell-math-renderer-enabled)
+            (when-let* ((start (marker-position start-marker))
+                        (end (marker-position end-marker))
+                        ((< start end)))
+              (with-silent-modifications
+                (let ((inhibit-read-only t))
+                  (save-excursion
+                    (save-restriction
+                      (widen)
+                      (narrow-to-region start end)
+                      (agent-shell-math-renderer--render-context
+                       (agent-shell-math-renderer--static-region-context))))))))))
+    (set-marker start-marker nil)
+    (set-marker end-marker nil)))
+
+(defun agent-shell-math-renderer--schedule-submitted-prompt (buffer)
+  "Schedule submitted-prompt math rendering in BUFFER."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and agent-shell-math-renderer-render-submitted-prompts
+                 agent-shell-math-renderer-enabled)
+        (when-let* ((region (agent-shell-math-renderer--submitted-prompt-region)))
+          (run-at-time 0 nil
+                       #'agent-shell-math-renderer--render-submitted-prompt
+                       buffer (car region) (cdr region)))))))
+
+(defun agent-shell-math-renderer--on-input-submitted (_event)
+  "Render the current buffer's submitted prompt after submit returns."
+  (agent-shell-math-renderer--schedule-submitted-prompt (current-buffer)))
+
+(defun agent-shell-math-renderer--maybe-subscribe-prompts ()
+  "Subscribe current agent-shell buffer to submitted-prompt rendering."
+  (unless agent-shell-math-renderer--prompt-subscription
+    (setq-local agent-shell-math-renderer--prompt-subscription
+                (agent-shell-subscribe-to
+                 :shell-buffer (current-buffer)
+                 :event 'input-submitted
+                 :on-event
+                 #'agent-shell-math-renderer--on-input-submitted))))
+
+(add-hook 'agent-shell-mode-hook
+          #'agent-shell-math-renderer--maybe-subscribe-prompts)
 
 (provide 'agent-shell-math-renderer)
 
