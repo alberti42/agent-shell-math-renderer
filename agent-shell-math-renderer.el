@@ -75,7 +75,7 @@
 
 (defgroup agent-shell-math-renderer nil
   "Render LaTeX math in agent-shell's streamed markdown output.
-Display equations (`\\[...\\]', `$$...$$', and ```math / ```latex /
+Display equations (`\\=\\[...\\]', `$$...$$', and ```math / ```latex /
 ```tex fences) and inline `\\(...\\)' are compiled to SVG with
 `latex' + `dvisvgm' and overlaid on the raw LaTeX (kept in the
 buffer so copy/save round-trips the source)."
@@ -94,7 +94,7 @@ on a non-graphical display."
   '((dollar . ("$$" . "$$"))
     (bracket . ("\\[" . "\\]")))
   "Map of display-math delimiter styles to their (OPEN . CLOSE) tokens.
-`dollar' is `$$...$$'; `bracket' is `\\[...\\]'.  The keys of this
+`dollar' is `$$...$$'; `bracket' is `\\=\\[...\\]'.  The keys of this
 map are the values accepted in `agent-shell-math-renderer-delimiters'.")
 
 (defconst agent-shell-math-renderer--inline-open "\\("
@@ -109,7 +109,7 @@ map are the values accepted in `agent-shell-math-renderer-delimiters'.")
 A list whose members are keys of
 `agent-shell-math-renderer--delimiters':
 
-  `bracket'  recognize `\\[...\\]'
+  `bracket'  recognize `\\=\\[...\\]'
   `dollar'   recognize `$$...$$'
 
 The two are independent — add or drop one to toggle it.  An empty
@@ -139,7 +139,7 @@ Nil (the default) disables math rendering entirely — delimiters
 and fenced math blocks are left as plain text / ordinary code
 blocks.  Set non-nil to opt in; what then gets recognized is
 controlled by `agent-shell-math-renderer-delimiters' (both
-`\\[...\\]' and `$$...$$' on by default) and
+`\\=\\[...\\]' and `$$...$$' on by default) and
 `agent-shell-math-renderer-fence-languages' (`math' / `latex' /
 `tex' fenced blocks, on by default).
 
@@ -164,7 +164,7 @@ case-insensitively), e.g.
 is typeset as an equation instead of shown as a code block — but
 only when `agent-shell-math-renderer-enabled' is non-nil.  Several
 agents emit `math'/`latex' fences (GitHub renders ```math as
-display math), so this complements the `\\[...\\]' / `$$...$$'
+display math), so this complements the `\\=\\[...\\]' / `$$...$$'
 delimiter styles.  Set to nil to leave such fences as code."
   :type '(repeat string)
   :safe (lambda (v) (and (listp v) (seq-every-p #'stringp v)))
@@ -354,7 +354,7 @@ body is the buffer text in [S+O, E-C).
 
 Only the delimiter styles listed in
 `agent-shell-math-renderer-delimiters' are recognized (`$$...$$'
-and/or `\\[...\\]'), and only as BLOCK-LEVEL equations:
+and/or `\\=\\[...\\]'), and only as BLOCK-LEVEL equations:
 
   - the opener must start its line (after optional indentation), and
   - the closer must be flush — start or end its line.
@@ -581,7 +581,7 @@ same call, collapsing the range markers we were handed — the live
 
 Recognizes the delimiter styles in
 `agent-shell-math-renderer-delimiters' (`$$...$$' and/or
-`\\[...\\]').  For each complete block with a non-empty body, the
+`\\=\\[...\\]').  For each complete block with a non-empty body, the
 raw delimited text is left in the buffer (so copy / save
 round-trips the LaTeX source) and the region is faced with
 `agent-shell-math-renderer' and tagged
@@ -598,9 +598,9 @@ valid while iterating.
 
 For example, with the buffer:
 
-  \\[E=mc^2\\]
+  \\=\\[E=mc^2\\]
 
-the `\\[E=mc^2\\]' text is kept but shows an equation image in its
+the `\\=\\[E=mc^2\\]' text is kept but shows an equation image in its
 place, faced `agent-shell-math-renderer' and frozen."
   (dolist (block (agent-shell-math-renderer--blocks avoid-ranges))
     ;; A still-open block (no closing delimiter yet) reports :close 0
@@ -644,8 +644,8 @@ Shared by the delimiter pass (`agent-shell-math-renderer--style-blocks'),
 the inline pass (`agent-shell-math-renderer--style-inline'), and the
 fenced-block path in `agent-shell-math-renderer--render-hook' (for ```math /
 ```latex / ```tex fences).  The fenced path first rewrites the block in
-place — the backtick fences are dropped and the body wrapped in `\\[...\\]'
-delimiters — and passes START..END over that `\\[...\\]' text, so all three
+place — the backtick fences are dropped and the body wrapped in `\\=\\[...\\]'
+delimiters — and passes START..END over that `\\=\\[...\\]' text, so all three
 callers hand this function a delimited (LaTeX-renderable) region."
   (with-current-buffer buffer
     (setq agent-shell-math-renderer--present t)
@@ -1153,12 +1153,11 @@ change is picked up just like a color change."
 ;;; Hook integration with agent-shell-markdown
 
 (defun agent-shell-math-renderer--rewrite-fenced-block (start end latex)
-  "Rewrite the fenced math block spanning START..END as `\\[LATEX\\]', then
-render it.
+  "Rewrite fenced math spanning START..END as `\\=\\[LATEX\\]' and render it.
 
 START..END cover the whole fenced block (backtick fences included); LATEX
 is its already-trimmed body.  The backtick fences are dropped and the body
-re-wrapped in `\\[...\\]' display delimiters, then that region is routed to
+re-wrapped in `\\=\\[...\\]' display delimiters, then that region is routed to
 `agent-shell-math-renderer--apply-region' (freeze + overlay).  A trailing
 newline just inside END (present unless the closing fence is the buffer's
 last, newline-less line) is kept outside the frozen math region so following
