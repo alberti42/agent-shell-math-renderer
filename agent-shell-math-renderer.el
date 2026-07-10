@@ -676,17 +676,18 @@ fenced-block path in `agent-shell-math-renderer--render-hook' (for ```math /
 ```latex / ```tex fences).  The fenced path first rewrites the block in
 place — the backtick fences are dropped and the body wrapped in `\\=\\[...\\]'
 delimiters — and passes START..END over that `\\=\\[...\\]' text, so all three
-callers hand this function a delimited (LaTeX-renderable) region."
+  callers hand this function a delimited (LaTeX-renderable) region."
   (with-current-buffer buffer
     (setq agent-shell-math-renderer--present t)
-    (add-face-text-property start end 'agent-shell-math-renderer)
-    (add-text-properties
-     start end
-     `(help-echo ,latex
-                 agent-shell-math-renderer-source ,latex
-                 agent-shell-math-renderer-inline ,inline
-                 agent-shell-markdown-frozen t
-                 rear-nonsticky (agent-shell-markdown-frozen)))
+    (with-silent-modifications
+      (add-face-text-property start end 'agent-shell-math-renderer)
+      (add-text-properties
+       start end
+       `(help-echo ,latex
+                   agent-shell-math-renderer-source ,latex
+                   agent-shell-math-renderer-inline ,inline
+                   agent-shell-markdown-frozen t
+                   rear-nonsticky (agent-shell-markdown-frozen))))
     (agent-shell-math-renderer--render buffer start end latex inline)))
 
 (defun agent-shell-math-renderer--svg-color (face attribute fallback)

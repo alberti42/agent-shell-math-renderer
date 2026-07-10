@@ -385,6 +385,32 @@ E=mc^2
     (should (equal (nreverse calls)
                    '((1 6 "A") (15 21 "B"))))))
 
+(ert-deftest agent-shell-math-renderer-render-handles-read-only-text ()
+  ;; Agent output may carry a `read-only' text property.  Marking it as math
+  ;; and installing a cached image must work without dirtying the buffer.
+  (with-temp-buffer
+    (insert "\\(x\\)")
+    (put-text-property (point-min) (point-max) 'read-only t)
+    (set-buffer-modified-p nil)
+    (cl-letf (((symbol-function 'agent-shell-math-renderer--renderable-p)
+               (lambda () t))
+              ((symbol-function 'agent-shell-math-renderer--current-appearance)
+               (lambda () '(test-appearance)))
+              ((symbol-function 'agent-shell-math-renderer--tools-available-p)
+               (lambda () t))
+              ((symbol-function 'agent-shell-math-renderer--cached-image)
+               (lambda (_key) 'fake-image)))
+      (agent-shell-math-renderer--apply-region
+       (current-buffer) (point-min) (point-max) "x" t))
+    (should (equal (get-text-property
+                    (point-min) 'agent-shell-math-renderer-source)
+                   "x"))
+    (should (eq (get-text-property
+                 (point-min) 'agent-shell-markdown-frozen)
+                t))
+    (should (eq (get-text-property (point-min) 'display) 'fake-image))
+    (should-not (buffer-modified-p))))
+
 (ert-deftest agent-shell-math-renderer-cache-key-distinguishes-inputs ()
   ;; The content key must be stable for identical inputs and differ when the
   ;; equation changes — otherwise cached SVGs collide or never hit.  (Pure
