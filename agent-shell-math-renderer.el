@@ -7,7 +7,7 @@
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.57.4"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.58.1"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -56,9 +56,9 @@
 ;; When `agent-shell-math-renderer-render-submitted-prompts' is non-nil,
 ;; submitted prompts are rendered after they are sent, using the same
 ;; delimiter, inline-math, and fenced-math handling as agent responses.
-;; This path builds the same markdown context by calling agent-shell's
-;; private source-block and inline-code scanners; that dependency is
-;; isolated to `agent-shell-math-renderer--static-region-context'.
+;; This path obtains the same markdown context through agent-shell's
+;; public `agent-shell-markdown-context', so it stays in sync with the
+;; streaming render hook and uses no private agent-shell API.
 ;;
 ;; Equations are typeset by compiling a standalone LaTeX document to DVI
 ;; (`latex') and converting it to SVG (`dvisvgm') — the same toolchain
@@ -1214,26 +1214,6 @@ agent-shell-markdown's `:block' positions."
                    (map-nested-elt sb '(:block :end))))
            source-blocks)))
 
-(defun agent-shell-math-renderer--static-region-context ()
-  "Return a render context for the current static narrowed region.
-
-This mirrors the context `agent-shell-markdown-replace-markup'
-passes to `agent-shell-markdown-render-functions', but without
-running the rest of the markdown renderer.  Submitted prompts are
-complete, static regions, so no watermark handling is needed.
-
-The source-block and inline-code scanners are private agent-shell
-helpers; this is intentionally isolated here so submitted prompts use
-the same in-place rendering context as streamed responses."
-  (let* ((source-blocks (agent-shell-markdown--source-blocks))
-         (source-ranges
-          (agent-shell-math-renderer--source-ranges source-blocks))
-         (inline-code-ranges
-          (agent-shell-markdown--inline-code-ranges
-           :avoid-ranges source-ranges)))
-    (list (cons :source-blocks source-blocks)
-          (cons :inline-code-ranges inline-code-ranges))))
-
 (defun agent-shell-math-renderer--render-context (context &optional streaming)
   "Render math in CONTEXT.
 
@@ -1337,7 +1317,7 @@ needs streaming protection, nil otherwise."
                       (widen)
                       (narrow-to-region start end)
                       (agent-shell-math-renderer--render-context
-                       (agent-shell-math-renderer--static-region-context))))))))))
+                       (agent-shell-markdown-context))))))))))
     (set-marker start-marker nil)
     (set-marker end-marker nil)))
 
