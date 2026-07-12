@@ -23,11 +23,9 @@
 ;;
 ;; NOTE: these tests call `agent-shell-markdown--deconstruct' (a private
 ;; agent-shell helper that turns propertized text into (STRING . FACES)
-;; runs) for their assertions.  It is the one remaining dependency on an
-;; agent-shell internal, and it is deliberately test-only: the shipped
-;; package uses only public agent-shell API, so if upstream renames or
-;; drops `--deconstruct' it breaks *these tests*, never production.  The
-;; fix is then local — adapt the assertions (or inline an equivalent).
+;; runs) for their assertions.  That dependency is test-only: if
+;; upstream renames or drops `--deconstruct', adapt the assertions or
+;; inline an equivalent.
 (require 'agent-shell-markdown)
 (require 'agent-shell-math-renderer)
 
@@ -723,6 +721,159 @@ x
               (should (equal (image-property img1 :scale) 0.8))
               (should (equal (image-property img2 :scale) 1.5)))))
       (delete-file tmp))))
+
+;;; Submitted-prompt rendering
+
+(ert-deftest agent-shell-math-renderer-submitted-prompt-region-copies-markers ()
+  ;; Copy comint's submitted-input markers before deferring, so output inserted
+  ;; at the prompt end is not included in the prompt render.
+  (with-temp-buffer
+    (insert "prompt \\(x\\)")
+    (let* ((original-end (point-max))
+           (start (copy-marker (point-min)))
+           (end (copy-marker (point-max)))
+           (comint-last-input-start start)
+           (comint-last-input-end end)
+           (region (agent-shell-math-renderer--submitted-prompt-region)))
+      (goto-char (point-max))
+      (insert "\noutput")
+      (should (= (marker-position (car region)) (point-min)))
+      (should (= (marker-position (cdr region)) original-end))
+      (set-marker start nil)
+      (set-marker end nil)
+      (set-marker (car region) nil)
+      (set-marker (cdr region) nil))))
+
+(ert-deftest agent-shell-math-renderer-input-submitted-defers-rendering ()
+  ;; The scheduler snapshots the submitted prompt in the shell buffer and
+  ;; defers rendering until after the submit command returns.
+  (let ((shell-buffer (generate-new-buffer " *asmr-shell*"))
+        scheduled)
+    (unwind-protect
+        (progn
+          (with-current-buffer shell-buffer
+            (insert "prompt \\(x\\)")
+            (setq-local comint-last-input-start (copy-marker (point-min)))
+            (setq-local comint-last-input-end (copy-marker (point-max)))
+            (setq-local agent-shell-math-renderer-enabled t)
+            (setq-local agent-shell-math-renderer-render-submitted-prompts t))
+          (with-temp-buffer
+            (cl-letf (((symbol-function 'run-at-time)
+                       (lambda (time repeat function &rest args)
+                         (setq scheduled (list time repeat function args))
+                         'fake-timer)))
+              (agent-shell-math-renderer--schedule-submitted-prompt
+               shell-buffer)))
+          (should scheduled)
+          (should (= (nth 0 scheduled) 0))
+          (should-not (nth 1 scheduled))
+          (should (eq (nth 2 scheduled)
+                      #'agent-shell-math-renderer--render-submitted-prompt))
+          (should (eq (car (nth 3 scheduled)) shell-buffer)))
+      (when (buffer-live-p shell-buffer)
+        (with-current-buffer shell-buffer
+          (set-marker comint-last-input-start nil)
+          (set-marker comint-last-input-end nil))
+        (kill-buffer shell-buffer)))))
+
+(ert-deftest agent-shell-math-renderer-input-submitted-subscription-uses-handler ()
+  (let (args)
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'agent-shell-subscribe-to)
+                 (lambda (&rest plist)
+                   (setq args plist)
+                   'fake-subscription)))
+        (agent-shell-math-renderer--maybe-subscribe-prompts))
+      (should (eq agent-shell-math-renderer--prompt-subscription
+                  'fake-subscription))
+      (should (eq (plist-get args :shell-buffer) (current-buffer)))
+      (should (eq (plist-get args :event) 'input-submitted))
+      (should (eq (plist-get args :on-event)
+                  #'agent-shell-math-renderer--on-input-submitted)))))
+
+(ert-deftest agent-shell-math-renderer-input-submitted-handler-uses-current-buffer ()
+  ;; The event handler keeps agent-shell's ordinary one-argument callback shape,
+  ;; so direct subscriptions are safe across live reloads.
+  (agent-shell-math-renderer-tests--enabled
+    (with-temp-buffer
+      (insert "prompt \\(x\\)")
+      (let ((comint-last-input-start (copy-marker (point-min)))
+            (comint-last-input-end (copy-marker (point-max)))
+            (agent-shell-math-renderer-render-submitted-prompts t)
+            scheduled)
+        (cl-letf (((symbol-function 'run-at-time)
+                   (lambda (time repeat function &rest args)
+                     (setq scheduled (list time repeat function args))
+                     'fake-timer)))
+          (agent-shell-math-renderer--on-input-submitted
+           '((:event . input-submitted))))
+        (should scheduled)
+        (should (eq (car (nth 3 scheduled)) (current-buffer)))
+        (set-marker comint-last-input-start nil)
+        (set-marker comint-last-input-end nil)))))
+
+(ert-deftest agent-shell-math-renderer-input-submitted-respects-option ()
+  (let ((scheduled nil))
+    (with-temp-buffer
+      (insert "prompt \\(x\\)")
+      (let ((comint-last-input-start (copy-marker (point-min)))
+            (comint-last-input-end (copy-marker (point-max)))
+            (agent-shell-math-renderer-enabled t)
+            (agent-shell-math-renderer-render-submitted-prompts nil))
+        (cl-letf (((symbol-function 'run-at-time)
+                   (lambda (&rest _)
+                     (setq scheduled t))))
+          (agent-shell-math-renderer--on-input-submitted
+           '((:event . input-submitted))))
+        (should-not scheduled)
+        (set-marker comint-last-input-start nil)
+        (set-marker comint-last-input-end nil)))))
+
+(ert-deftest agent-shell-math-renderer-render-submitted-prompt-static-region ()
+  ;; Rendering a prompt should affect the submitted input, not neighbouring
+  ;; buffer text, and inline math inside backtick code spans must stay literal.
+  (agent-shell-math-renderer-tests--enabled
+    (with-temp-buffer
+      (insert "outside \\(a\\)\n")
+      (let ((start (copy-marker (point))))
+        (insert "inside \\(b\\) and `\\(literal\\)`")
+        (let ((end (copy-marker (point)))
+              (agent-shell-math-renderer-render-submitted-prompts t))
+          (agent-shell-math-renderer--render-submitted-prompt
+           (current-buffer) start end)
+          (goto-char (point-min))
+          (search-forward "\\(a\\)")
+          (should-not (get-text-property (match-beginning 0)
+                                         'agent-shell-math-renderer-source))
+          (goto-char (point-min))
+          (search-forward "\\(b\\)")
+          (should (equal (get-text-property
+                          (match-beginning 0)
+                          'agent-shell-math-renderer-source)
+                         "b"))
+          (goto-char (point-min))
+          (search-forward "\\(literal\\)")
+          (should-not (get-text-property
+                       (match-beginning 0)
+                       'agent-shell-math-renderer-source)))))))
+
+(ert-deftest agent-shell-math-renderer-render-submitted-prompt-fenced-math ()
+  ;; Submitted prompts use the same fenced-math rewrite, so ```math prompts
+  ;; become copyable display LaTeX.
+  (agent-shell-math-renderer-tests--enabled
+    (with-temp-buffer
+      (insert "```math\nE=mc^2\n```\n")
+      (let ((start (copy-marker (point-min)))
+            (end (copy-marker (point-max)))
+            (agent-shell-math-renderer-render-submitted-prompts t))
+        (agent-shell-math-renderer--render-submitted-prompt
+         (current-buffer) start end)
+        (should (equal (buffer-string) "\\[\nE=mc^2\n\\]\n"))
+        (goto-char (point-min))
+        (should (equal (get-text-property
+                        (point)
+                        'agent-shell-math-renderer-source)
+                       "E=mc^2"))))))
 
 (provide 'agent-shell-math-renderer-tests)
 
