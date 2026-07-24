@@ -492,6 +492,48 @@ x
                     (agent-shell-markdown-convert "text \\(E=mc^2"))
                    '(("text \\(E=mc^2" nil))))))
 
+(defun agent-shell-math-renderer-tests--stream (text step)
+  "Feed TEXT into a temp buffer STEP chars at a time, rendering each time.
+Mimics agent-shell streaming: text is appended in chunks and
+`agent-shell-markdown-replace-markup' runs after every chunk, so the
+watermark drives incremental rendering.  Returns the buffer string."
+  (with-temp-buffer
+    (let ((i 0) (n (length text)))
+      (while (< i n)
+        (let ((end (min n (+ i step))))
+          (goto-char (point-max))
+          (insert (substring text i end))
+          (setq i end))
+        (agent-shell-markdown-replace-markup)))
+    (buffer-string)))
+
+(ert-deftest agent-shell-math-renderer-streaming-display-block-after-link ()
+  ;; Regression: a display block whose opener sits just below a Markdown
+  ;; link must still render when streamed.  Our hook runs BEFORE
+  ;; agent-shell's link pass, which deletes the `](url)' markup later in
+  ;; the same pass; the open-block watermark must track that deletion (a
+  ;; marker, not a stale integer) or the frontier stamps past the `\['
+  ;; and the completed block is never re-scanned -- left frozen but
+  ;; unrendered.  Stream at several chunk sizes to hit the boundary that
+  ;; splits the block across chunks.
+  (agent-shell-math-renderer-tests--enabled
+    (dolist (step '(1 5 11 40 100))
+      (let ((rendered
+             (agent-shell-math-renderer-tests--stream
+              "fit to [Dalibard theory, Eq. (3)](https://example.com/a/b/c/d/e#L181):
+
+\\[
+T=T_0+\\frac{a}{b}
+\\]
+
+after text.
+"
+              step)))
+        (should (equal (get-text-property (string-match "T=T_0" rendered)
+                                          'agent-shell-math-renderer-source
+                                          rendered)
+                       "T=T_0+\\frac{a}{b}"))))))
+
 (ert-deftest agent-shell-math-renderer-inline-math-can-be-disabled ()
   ;; `agent-shell-math-renderer-render-inline' nil disables `\\(...\\)'
   ;; even with the master switch on: delimiters are plain and inner

@@ -1231,7 +1231,16 @@ a `:watermark' result for agent-shell."
       (let ((open-block (seq-find (lambda (b) (zerop (plist-get b :close)))
                                   (agent-shell-math-renderer--blocks source-ranges))))
         (when open-block
-          (setq watermark (plist-get open-block :start))
+          ;; Return the frontier as a MARKER, not a raw integer.  We run
+          ;; before agent-shell's link/image passes, which delete markup
+          ;; (`[text](url)' -> `text', `![](url)' -> image) later in this
+          ;; same pass.  A deletion on a line above the opener shifts the
+          ;; `\[' down; a plain integer captured now would then point past
+          ;; it, so `--update-watermark' would stamp a frontier beyond the
+          ;; opener and the next chunk would never re-scan the block (it
+          ;; stays frozen-but-unrendered).  A marker tracks those edits, so
+          ;; the `min' in `--update-watermark' reads its live position.
+          (setq watermark (copy-marker (plist-get open-block :start)))
           (put-text-property (plist-get open-block :start)
                              (plist-get open-block :end)
                              'agent-shell-markdown-frozen t))))
