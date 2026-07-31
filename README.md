@@ -54,6 +54,11 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 - **Emacs 29.1+**
 - **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.57.4 or newer —
   the release that exposes `:inline-code-ranges` to render hooks)
+- **[`latex-to-svg`](https://github.com/alberti42/latex-to-svg)** — the
+  rendering engine (equation compile, caching, display-time tint/scale) is
+  factored out into this standalone library. All typesetting knobs (LaTeX /
+  dvisvgm programs, preamble, cache directory, font scale, placeholder /
+  non-graphic behaviour) live in its `latex-to-svg-*` customization group.
 - A **LaTeX toolchain** providing `latex` and `dvisvgm` (e.g. TeX Live /
   MacTeX; `dvisvgm` ships with TeX Live). Without it, equations fall back to a
   bordered placeholder or the raw LaTeX text.
@@ -67,14 +72,23 @@ The package hooks into `agent-shell` through its public
 advice. With agent-shell's default (in-place) renderer, math renders
 automatically once installed.
 
+> **Dependency:** `latex-to-svg` is not yet on MELPA, so it must be installed
+> too. Each recipe below installs it alongside the renderer; declare the
+> dependency *before* the renderer so it is on `load-path` when the renderer's
+> `(require 'latex-to-svg)` runs. Once both are on MELPA this becomes automatic
+> via the `Package-Requires` header.
+
 ### `use-package` + `:vc` (Emacs 30+)
 
 The built-in way — no `straight`, no manual `package-vc-install`:
 
 ```elisp
+(use-package latex-to-svg
+  :vc (:url "https://github.com/alberti42/latex-to-svg" :rev :newest))
+
 (use-package agent-shell-math-renderer
   :vc (:url "https://github.com/alberti42/agent-shell-math-renderer" :rev :newest)
-  :after agent-shell
+  :after (agent-shell latex-to-svg)
   :config
   (setq agent-shell-math-renderer-enabled t))
 ```
@@ -82,20 +96,34 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 ### `use-package` + `straight`
 
 ```elisp
+(use-package latex-to-svg
+  :straight (latex-to-svg
+             :type git :host github :repo "alberti42/latex-to-svg"))
+
 (use-package agent-shell-math-renderer
   :straight (agent-shell-math-renderer
              :type git :host github
              :repo "alberti42/agent-shell-math-renderer")
-  :after agent-shell
+  :after (agent-shell latex-to-svg)
   :config
   (setq agent-shell-math-renderer-enabled t))
 ```
 
-### `package-vc-install` (Emacs 29+)
-
-For Emacs 29, where `use-package` has no `:vc` keyword:
+### `elpaca`
 
 ```elisp
+(elpaca (latex-to-svg :host github :repo "alberti42/latex-to-svg"))
+(elpaca (agent-shell-math-renderer
+         :host github :repo "alberti42/agent-shell-math-renderer"))
+```
+
+### `package-vc-install` (Emacs 29+)
+
+For Emacs 29, where `use-package` has no `:vc` keyword — install the dependency
+first:
+
+```elisp
+(package-vc-install "https://github.com/alberti42/latex-to-svg")
 (package-vc-install "https://github.com/alberti42/agent-shell-math-renderer")
 (require 'agent-shell-math-renderer)
 (setq agent-shell-math-renderer-enabled t)
@@ -135,11 +163,11 @@ a `.dir-locals.el` sets it without a confirmation prompt:
 ```
 
 The same works for the other side-effect-free options (`-delimiters`,
-`-fence-languages`, `-render-inline`, `-font-scale`, …). The toolchain and
-preamble options (`-latex-program`, `-dvisvgm-program`, `-preamble`,
-`-appended-preamble`, `-cache-directory`) are **not** marked safe — a
-`.dir-locals.el` lives inside the repo, and those feed a compiler or run a
-program, so Emacs will ask before applying them.
+`-fence-languages`, `-render-inline`, and the engine's `latex-to-svg-font-scale`).
+The engine's toolchain and preamble options (`latex-to-svg-latex-program`,
+`-dvisvgm-program`, `-preamble`, `-appended-preamble`, `-cache-directory`) are
+**not** marked safe — a `.dir-locals.el` lives inside the repo, and those feed a
+compiler or run a program, so Emacs will ask before applying them.
 
 ### Tip: tell the agent to use `\(…\)` for inline math
 
@@ -167,7 +195,7 @@ folded into the cache key, so changing it invalidates stale images
 automatically:
 
 ```elisp
-(setq agent-shell-math-renderer-appended-preamble
+(setq latex-to-svg-appended-preamble
       "\\usepackage{physics}
 \\usepackage{siunitx}")
 ```
@@ -181,8 +209,8 @@ automatically:
 
 ## Customization
 
-All options live in the `agent-shell-math-renderer` customization group
-(`M-x customize-group RET agent-shell-math-renderer`).
+Detection / hook options live in the `agent-shell-math-renderer` customization
+group (`M-x customize-group RET agent-shell-math-renderer`):
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -191,14 +219,22 @@ All options live in the `agent-shell-math-renderer` customization group
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math" "latex" "tex")` | Fenced-code languages rendered as display math. `nil` leaves them as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
-| `agent-shell-math-renderer-font-scale` | `1.0` | Equation size relative to the buffer font (`1.0` = match). |
-| `agent-shell-math-renderer-appended-preamble` | `""` | Extra LaTeX appended to the base preamble (load packages here). |
-| `agent-shell-math-renderer-preamble` | standalone + amsmath/amssymb/xcolor | The base LaTeX preamble. |
-| `agent-shell-math-renderer-latex-program` | `"latex"` | Program compiling LaTeX → DVI. |
-| `agent-shell-math-renderer-dvisvgm-program` | `"dvisvgm"` | Program converting DVI → SVG. |
-| `agent-shell-math-renderer-use-placeholder` | `nil` | Draw the placeholder panel instead of typesetting (also the automatic fallback when the toolchain is missing). |
-| `agent-shell-math-renderer-render-on-non-graphic` | `nil` | Compile images even on a non-graphical frame (for daemon setups viewed later in a GUI). |
-| `agent-shell-math-renderer-cache-directory` | `nil` | Where SVGs are cached; `nil` uses agent-shell's shared cache. |
+
+The **rendering-engine** options (equation size, toolchain, preamble, caching,
+placeholder / non-graphic behaviour) live in the
+[`latex-to-svg`](https://github.com/alberti42/latex-to-svg) group
+(`M-x customize-group RET latex-to-svg`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `latex-to-svg-font-scale` | `1.0` | Equation size relative to the buffer font (`1.0` = match). |
+| `latex-to-svg-appended-preamble` | `""` | Extra LaTeX appended to the base preamble (load packages here). |
+| `latex-to-svg-preamble` | standalone + amsmath/amssymb/xcolor | The base LaTeX preamble. |
+| `latex-to-svg-latex-program` | `"latex"` | Program compiling LaTeX → DVI. |
+| `latex-to-svg-dvisvgm-program` | `"dvisvgm"` | Program converting DVI → SVG. |
+| `latex-to-svg-use-placeholder` | `nil` | Draw the placeholder panel instead of typesetting (also the automatic fallback when the toolchain is missing). |
+| `latex-to-svg-render-on-non-graphic` | `nil` | Compile images even on a non-graphical frame (for daemon setups viewed later in a GUI). |
+| `latex-to-svg-cache-directory` | `nil` | Where SVGs are cached; `nil` uses `$XDG_CACHE_HOME/latex-to-svg/`. |
 
 The `agent-shell-math-renderer` face styles the raw LaTeX shown on a
 non-graphical display (behind the image on a graphical one).
@@ -207,15 +243,20 @@ non-graphical display (behind the image on a graphical one).
 
 - The package adds `agent-shell-math-renderer--render-hook` to
   `agent-shell-markdown-render-functions`; agent-shell's markdown renderer
-  calls it once per streaming chunk, after its own passes.
-- Each equation is compiled by a standalone LaTeX document → DVI (`latex`) →
+  calls it once per streaming chunk, after its own passes. This module owns the
+  markdown-specific work: detecting delimiters / inline / fenced math, the
+  streaming watermark, and placing the image (via a `display` text property).
+- Typesetting is delegated to [`latex-to-svg`](https://github.com/alberti42/latex-to-svg):
+  each equation is compiled by a standalone LaTeX document → DVI (`latex`) →
   SVG (`dvisvgm --no-fonts --exact-bbox --currentcolor`). Compilation is
   **asynchronous** and off the output path, so its latency is masked by the
   agent's own streaming.
 - The SVG is **cached on disk** keyed by content (LaTeX + preamble + style), so
   each unique equation compiles at most once, ever, and survives restarts. It
   is color- and font-independent; tint and size are applied cheaply at display
-  time.
+  time. Because the cache is content-addressed, it is shared with any other
+  `latex-to-svg` front-end (e.g. an Org previewer) — the same equation compiles
+  once across all of them.
 - The raw LaTeX is kept under the image via a `display` property, so
   selection/copy/save give back the source.
 

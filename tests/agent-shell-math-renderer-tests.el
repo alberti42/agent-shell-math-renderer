@@ -16,6 +16,17 @@
              (expand-file-name ".." (file-name-directory
                                      (or load-file-name buffer-file-name))))
 
+;; `latex-to-svg' (the extracted rendering engine, a hard dependency of the
+;; renderer) is a sibling repo; add it to `load-path' so the module's
+;; `(require 'latex-to-svg)' resolves when running the suite from a checkout.
+;; Override the location with LATEX_TO_SVG_DIR for other layouts.
+(let ((dir (or (getenv "LATEX_TO_SVG_DIR")
+               (expand-file-name "../../latex-to-svg"
+                                 (file-name-directory
+                                  (or load-file-name buffer-file-name))))))
+  (when (file-directory-p dir)
+    (add-to-list 'load-path dir)))
+
 ;; Loads `agent-shell-markdown' (from load path) and our renderer.
 ;; The math passes run through `agent-shell-markdown-convert', so the
 ;; tests exercise the hook integration rather than the module in
@@ -327,24 +338,6 @@ E=mc^2
                         (memq 'agent-shell-markdown-source-block (cadr run)))
                       runs))))
 
-(ert-deftest agent-shell-math-renderer-renderable-p-honors-non-graphic-opt-in ()
-  ;; Renderability requires SVG build support, and then either a
-  ;; graphical frame or the non-graphic opt-in (for daemon use).
-  (cl-letf (((symbol-function 'image-type-available-p) (lambda (_) t)))
-    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
-      (let ((agent-shell-math-renderer-render-on-non-graphic nil))
-        (should-not (agent-shell-math-renderer--renderable-p)))
-      (let ((agent-shell-math-renderer-render-on-non-graphic t))
-        (should (agent-shell-math-renderer--renderable-p))))
-    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t)))
-      (let ((agent-shell-math-renderer-render-on-non-graphic nil))
-        (should (agent-shell-math-renderer--renderable-p)))))
-  ;; No SVG support in the build => never renderable, even with the opt-in.
-  (cl-letf (((symbol-function 'image-type-available-p) (lambda (_) nil))
-            ((symbol-function 'display-graphic-p) (lambda (&rest _) t)))
-    (let ((agent-shell-math-renderer-render-on-non-graphic t))
-      (should-not (agent-shell-math-renderer--renderable-p)))))
-
 (ert-deftest agent-shell-math-renderer-math-degrades-without-svg ()
   ;; On a build without SVG support, math rendering degrades gracefully:
   ;; even on a graphical frame and with the feature on, equations are still
@@ -384,28 +377,6 @@ E=mc^2
         (agent-shell-math-renderer--refresh-buffer (current-buffer))))
     (should (equal (nreverse calls)
                    '((1 6 "A") (15 21 "B"))))))
-
-(ert-deftest agent-shell-math-renderer-cache-key-distinguishes-inputs ()
-  ;; The content key must be stable for identical inputs and differ when the
-  ;; equation changes — otherwise cached SVGs collide or never hit.  (Pure
-  ;; function; no TeX or graphical display needed.)  Neither display size
-  ;; NOR color is part of this key: the on-disk SVG is font-independent and
-  ;; color-independent (compiled with --currentcolor, tinted at display).
-  (let ((base (agent-shell-math-renderer--cache-key "E=mc^2")))
-    (should (equal base (agent-shell-math-renderer--cache-key "E=mc^2")))
-    (should-not (equal base (agent-shell-math-renderer--cache-key "E=mc^3")))))
-
-(ert-deftest agent-shell-math-renderer-cache-key-folds-in-preamble ()
-  ;; Changing the preamble must invalidate the cache (different output).
-  (let ((base (agent-shell-math-renderer--cache-key "E=mc^2")))
-    (let ((agent-shell-math-renderer-preamble "\\documentclass{minimal}"))
-      (should-not (equal base (agent-shell-math-renderer--cache-key "E=mc^2"))))))
-
-(ert-deftest agent-shell-math-renderer-cache-key-folds-in-appended-preamble ()
-  ;; Changing the appended preamble must also invalidate the cache.
-  (let ((base (agent-shell-math-renderer--cache-key "E=mc^2")))
-    (let ((agent-shell-math-renderer-appended-preamble "\\usepackage{braket}"))
-      (should-not (equal base (agent-shell-math-renderer--cache-key "E=mc^2"))))))
 
 (ert-deftest agent-shell-math-renderer-inline-math-protects-markup ()
   ;; Inline `\\(...\\)' is matched anywhere on a line (not just block
@@ -570,90 +541,6 @@ after text.
                      "x"))
       (should-not (get-text-property 0 'agent-shell-math-renderer-inline display)))))
 
-(ert-deftest agent-shell-math-renderer-cache-key-distinguishes-inline ()
-  ;; Inline and display renders of the same source must not collide:
-  ;; the inline flag changes the key, while the default (display) key is
-  ;; unchanged from the no-flag form.
-  (should (equal (agent-shell-math-renderer--cache-key "x")
-                 (agent-shell-math-renderer--cache-key "x" nil)))
-  (should-not (equal (agent-shell-math-renderer--cache-key "x")
-                     (agent-shell-math-renderer--cache-key "x" t))))
-
-(ert-deftest agent-shell-math-renderer-cache-dir-uses-agent-shell-cache ()
-  ;; By default the equation cache lives under agent-shell's shared cache
-  ;; directory (so SVGs persist across sessions next to other cached
-  ;; assets).  Stub `agent-shell-cache-dir' to a temp dir so the test
-  ;; pins a deterministic base and asserts the delegation, rather than
-  ;; touching the real cache location.
-  (let ((agent-shell-math-renderer-cache-directory nil)
-        (tmp (make-temp-file "asm-cache" t)))
-    (unwind-protect
-        (cl-letf (((symbol-function 'agent-shell-cache-dir)
-                   (lambda (&rest components)
-                     (apply #'file-name-concat tmp components))))
-          (should (equal (agent-shell-math-renderer--cache-dir)
-                         (file-name-concat tmp "markdown-math"))))
-      (delete-directory tmp t))))
-
-(ert-deftest agent-shell-math-renderer-cache-dir-honors-explicit-override ()
-  ;; An explicit `agent-shell-math-renderer-cache-directory' wins over the
-  ;; shared default and is created on demand.
-  (let* ((parent (make-temp-file "asm-cache-override" t))
-         (dir (file-name-concat parent "eqs"))
-         (agent-shell-math-renderer-cache-directory dir))
-    (unwind-protect
-        (progn
-          (should (equal (agent-shell-math-renderer--cache-dir) dir))
-          (should (file-directory-p dir)))
-      (delete-directory parent t))))
-
-(ert-deftest agent-shell-math-renderer-display-scale-is-1-when-non-graphical ()
-  ;; Off a graphical frame (batch, the daemon-prerender path) the font
-  ;; height is unknown, so the image is left at natural size — this is
-  ;; why the batch render paths and the rest of the suite are unaffected.
-  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
-    (should (equal (agent-shell-math-renderer--display-scale) 1.0))))
-
-(ert-deftest agent-shell-math-renderer-svg-px-per-pt-falls-back-uncached ()
-  ;; Without a graphical frame the calibration returns the 96/72 fallback
-  ;; and must NOT cache it, so a later graphical frame can still measure.
-  (let ((agent-shell-math-renderer--svg-px-per-pt nil))
-    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
-      (should (equal (agent-shell-math-renderer--svg-px-per-pt) (/ 96.0 72.0)))
-      (should-not agent-shell-math-renderer--svg-px-per-pt))))
-
-(ert-deftest agent-shell-math-renderer-display-scale-matches-font ()
-  ;; The display scale maps the LaTeX 10pt body font onto the buffer font
-  ;; height: scale = target * font-scale / (10 * px-per-pt).  Stub the
-  ;; graphical inputs so the arithmetic is checked deterministically.
-  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
-            ((symbol-function 'default-font-height) (lambda (&rest _) 28))
-            ((symbol-function 'agent-shell-math-renderer--svg-px-per-pt)
-             (lambda () 2.0)))
-    (let ((agent-shell-math-renderer-font-scale 1.0))
-      (should (equal (agent-shell-math-renderer--display-scale)
-                     (/ 28.0 (* 10.0 2.0)))))
-    ;; Doubling font-scale doubles the displayed size.
-    (let* ((agent-shell-math-renderer-font-scale 1.0)
-           (base (agent-shell-math-renderer--display-scale))
-           (agent-shell-math-renderer-font-scale 2.0))
-      (should (equal (agent-shell-math-renderer--display-scale) (* 2 base))))))
-
-(ert-deftest agent-shell-math-renderer-appearance-tracks-color-and-font ()
-  ;; The appearance signature folds in both the colors and the buffer font
-  ;; height, so the lazy refresh detects a font-size change as well as a
-  ;; color change.  Stub the graphical inputs.
-  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
-            ((symbol-function 'agent-shell-math-renderer--svg-color)
-             (lambda (_face attr _fallback)
-               (if (eq attr :foreground) "#111111" "#eeeeee"))))
-    (cl-letf (((symbol-function 'default-font-height) (lambda (&rest _) 20)))
-      (let ((a (agent-shell-math-renderer--current-appearance)))
-        (should (equal a '("#111111" "#eeeeee" 20)))
-        ;; Same colors, larger font => different signature => would refresh.
-        (cl-letf (((symbol-function 'default-font-height) (lambda (&rest _) 28)))
-          (should-not (equal a (agent-shell-math-renderer--current-appearance))))))))
-
 (ert-deftest agent-shell-math-renderer-refresh-if-changed-detects-font ()
   ;; `--refresh-if-changed' triggers a refresh when only the font height
   ;; moved (colors unchanged), and targets just the current buffer (the
@@ -666,7 +553,7 @@ after text.
       (setq agent-shell-math-renderer--rendered-appearance
             '("#000000" "#ffffff" 20))
       (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
-                ((symbol-function 'agent-shell-math-renderer--svg-color)
+                ((symbol-function 'latex-to-svg--svg-color)
                  (lambda (_face attr _fallback)
                    (if (eq attr :foreground) "#000000" "#ffffff")))
                 ((symbol-function 'default-font-height) (lambda (&rest _) 30))
@@ -685,7 +572,7 @@ after text.
       (setq agent-shell-math-renderer--present nil)
       (setq agent-shell-math-renderer--rendered-appearance nil)
       (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
-                ((symbol-function 'agent-shell-math-renderer--svg-color)
+                ((symbol-function 'latex-to-svg--svg-color)
                  (lambda (_face attr _fallback)
                    (if (eq attr :foreground) "#000000" "#ffffff")))
                 ((symbol-function 'default-font-height) (lambda (&rest _) 30))
@@ -701,68 +588,6 @@ after text.
   ;; switch.  Verify the hook is wired at load time.
   (should (memq 'agent-shell-math-renderer--maybe-refresh
                 (default-value 'text-scale-mode-hook))))
-
-(ert-deftest agent-shell-math-renderer-image-cache-key-includes-scale-and-color ()
-  ;; The in-memory image-cache key folds in BOTH the display scale and the
-  ;; tint color, so the same equation at two font sizes or two themes maps
-  ;; to distinct entries (the on-disk SVG is shared).
-  (should (equal (agent-shell-math-renderer--image-cache-key "K" 0.8 "#fff")
-                 (agent-shell-math-renderer--image-cache-key "K" 0.8 "#fff")))
-  (should-not (equal (agent-shell-math-renderer--image-cache-key "K" 0.8 "#fff")
-                     (agent-shell-math-renderer--image-cache-key "K" 1.5 "#fff")))
-  (should-not (equal (agent-shell-math-renderer--image-cache-key "K" 0.8 "#fff")
-                     (agent-shell-math-renderer--image-cache-key "K" 0.8 "#000"))))
-
-(ert-deftest agent-shell-math-renderer-load-svg-recolors-currentcolor ()
-  ;; The on-disk SVG carries `currentColor'; loading substitutes the given
-  ;; foreground in, so the image is tinted without recompiling.
-  (let ((tmp (make-temp-file "asm-cc" nil ".svg")))
-    (unwind-protect
-        (progn
-          (with-temp-file tmp
-            (insert "<svg xmlns='http://www.w3.org/2000/svg'>"
-                    "<path fill='currentColor' d='M0 0h1v1z'/></svg>"))
-          (let ((data (image-property
-                       (agent-shell-math-renderer--load-svg-image tmp 1.0 "#abcdef")
-                       :data)))
-            (should (string-match-p "#abcdef" data))
-            (should-not (string-match-p "currentColor" data))))
-      (delete-file tmp))))
-
-(ert-deftest agent-shell-math-renderer-image-cache-coexists-per-scale ()
-  ;; The same on-disk SVG cached at two display scales yields two distinct
-  ;; image objects that coexist: the first stays warm after the second is
-  ;; created (so a sibling buffer's images survive a font change — no clear).
-  (let ((tmp (make-temp-file "asm-svg" nil ".svg")))
-    (unwind-protect
-        (progn
-          (with-temp-file tmp
-            (insert "<svg xmlns='http://www.w3.org/2000/svg' "
-                    "width='10pt' height='10pt'>"
-                    "<rect width='10' height='10'/></svg>"))
-          (clrhash agent-shell-math-renderer--image-cache)
-          (cl-letf (((symbol-function 'agent-shell-math-renderer--svg-file)
-                     (lambda (_key) tmp)))
-            (let (img1 img2)
-              (cl-letf (((symbol-function 'agent-shell-math-renderer--display-scale)
-                         (lambda () 0.8)))
-                (setq img1 (agent-shell-math-renderer--cached-image "K")))
-              (cl-letf (((symbol-function 'agent-shell-math-renderer--display-scale)
-                         (lambda () 1.5)))
-                (setq img2 (agent-shell-math-renderer--cached-image "K")))
-              (should img1)
-              (should img2)
-              ;; Two coexisting entries, one per scale.
-              (should (= 2 (hash-table-count
-                            agent-shell-math-renderer--image-cache)))
-              ;; The first is still served from cache (warm, not evicted).
-              (cl-letf (((symbol-function 'agent-shell-math-renderer--display-scale)
-                         (lambda () 0.8)))
-                (should (eq img1 (agent-shell-math-renderer--cached-image "K"))))
-              ;; Each image carries its own scale.
-              (should (equal (image-property img1 :scale) 0.8))
-              (should (equal (image-property img2 :scale) 1.5)))))
-      (delete-file tmp))))
 
 ;;; Submitted-prompt rendering
 
