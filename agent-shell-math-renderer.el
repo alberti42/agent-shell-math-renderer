@@ -6,8 +6,8 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.2.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.58.1") (latex-to-svg "0.2.0"))
+;; Version: 0.3.0
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.58.1") (latex-to-svg "0.3.1"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -201,6 +201,25 @@ Only the unambiguous `\\(...\\)' form is detected; `$...$' support
 can be added later if agents prove to need it."
   :type 'boolean
   :safe #'booleanp
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-inline-rescale 1.0
+  "Size multiplier for inline math previews (`\\(...\\)').
+Applied on top of the engine's global `latex-to-svg-font-scale' via
+`latex-to-svg's `:rescale-by'.  Re-scales from cache (no recompile);
+after changing it, run `agent-shell-math-renderer-refresh' to apply."
+  :type 'number
+  :safe #'numberp
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-display-rescale 1.0
+  "Size multiplier for display math previews (`\\=\\[...\\]', `$$...$$', fences).
+Applied on top of the engine's global `latex-to-svg-font-scale' via
+`latex-to-svg's `:rescale-by' — e.g. set to 1.1 for display equations a
+touch larger than inline.  Re-scales from cache (no recompile); after
+changing it, run `agent-shell-math-renderer-refresh' to apply."
+  :type 'number
+  :safe #'numberp
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-render-submitted-prompts nil
@@ -602,7 +621,9 @@ typesets it in text style, otherwise display style.  Since
 here into valid body LaTeX (`$body$' inline, `$\\displaystyle body$'
 display) and pass that.  Color and size are not baked in —
 `latex-to-svg' tints the color-independent SVG to the buffer
-foreground and scales it to the buffer font at display time."
+foreground and scales it to the buffer font at display time, the
+latter by `agent-shell-math-renderer-inline-rescale' /
+`-display-rescale' (via `:rescale-by') for INLINE / display math."
   (when (latex-to-svg-available-p)
     ;; Record the appearance (colors + font height) this render is for,
     ;; so a later theme / frame / font change can detect the difference
@@ -612,7 +633,10 @@ foreground and scales it to the buffer font at display time."
     (let* ((doc (if inline
                     (format "$%s$" latex)
                   (format "$\\displaystyle %s$" latex)))
-           (image (latex-to-svg doc)))
+           (rescale (if inline
+                        agent-shell-math-renderer-inline-rescale
+                      agent-shell-math-renderer-display-rescale))
+           (image (latex-to-svg doc :rescale-by rescale)))
       (if image
           (agent-shell-math-renderer--overlay-image buffer start end image)
         ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
@@ -621,13 +645,14 @@ foreground and scales it to the buffer font at display time."
               (e (copy-marker end)))
           (latex-to-svg
            doc
+           :rescale-by rescale
            :callback
            (lambda ()
              (when (buffer-live-p buffer)
                (with-current-buffer buffer
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
-                  (latex-to-svg doc)))))))))))
+                  (latex-to-svg doc :rescale-by rescale)))))))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.
