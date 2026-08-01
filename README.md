@@ -54,7 +54,7 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 - **Emacs 29.1+**
 - **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.57.4 or newer —
   the release that exposes `:inline-code-ranges` to render hooks)
-- **[`latex-to-svg`](https://github.com/alberti42/latex-to-svg)** — the
+- **[`latex-to-svg`](https://github.com/alberti42/emacs-latex-to-svg)** — the
   rendering engine (equation compile, caching, display-time tint/scale) is
   factored out into this standalone library. All typesetting knobs (LaTeX /
   dvisvgm programs, preamble, cache directory, font scale, placeholder /
@@ -84,7 +84,7 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 
 ```elisp
 (use-package latex-to-svg
-  :vc (:url "https://github.com/alberti42/latex-to-svg" :rev :newest))
+  :vc (:url "https://github.com/alberti42/emacs-latex-to-svg" :rev :newest))
 
 (use-package agent-shell-math-renderer
   :vc (:url "https://github.com/alberti42/agent-shell-math-renderer" :rev :newest)
@@ -98,7 +98,7 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 ```elisp
 (use-package latex-to-svg
   :straight (latex-to-svg
-             :type git :host github :repo "alberti42/latex-to-svg"))
+             :type git :host github :repo "alberti42/emacs-latex-to-svg"))
 
 (use-package agent-shell-math-renderer
   :straight (agent-shell-math-renderer
@@ -112,7 +112,7 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 ### `elpaca`
 
 ```elisp
-(elpaca (latex-to-svg :host github :repo "alberti42/latex-to-svg"))
+(elpaca (latex-to-svg :host github :repo "alberti42/emacs-latex-to-svg"))
 (elpaca (agent-shell-math-renderer
          :host github :repo "alberti42/agent-shell-math-renderer"))
 ```
@@ -123,7 +123,7 @@ For Emacs 29, where `use-package` has no `:vc` keyword — install the dependenc
 first:
 
 ```elisp
-(package-vc-install "https://github.com/alberti42/latex-to-svg")
+(package-vc-install "https://github.com/alberti42/emacs-latex-to-svg")
 (package-vc-install "https://github.com/alberti42/agent-shell-math-renderer")
 (require 'agent-shell-math-renderer)
 (setq agent-shell-math-renderer-enabled t)
@@ -222,7 +222,7 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 
 The **rendering-engine** options (equation size, toolchain, preamble, caching,
 placeholder / non-graphic behaviour) live in the
-[`latex-to-svg`](https://github.com/alberti42/latex-to-svg) group
+[`latex-to-svg`](https://github.com/alberti42/emacs-latex-to-svg) group
 (`M-x customize-group RET latex-to-svg`):
 
 | Option | Default | Description |
@@ -246,7 +246,7 @@ non-graphical display (behind the image on a graphical one).
   calls it once per streaming chunk, after its own passes. This module owns the
   markdown-specific work: detecting delimiters / inline / fenced math, the
   streaming watermark, and placing the image (via a `display` text property).
-- Typesetting is delegated to [`latex-to-svg`](https://github.com/alberti42/latex-to-svg):
+- Typesetting is delegated to [`latex-to-svg`](https://github.com/alberti42/emacs-latex-to-svg):
   each equation is compiled by a standalone LaTeX document → DVI (`latex`) →
   SVG (`dvisvgm --no-fonts --exact-bbox --currentcolor`). Compilation is
   **asynchronous** and off the output path, so its latency is masked by the
