@@ -596,19 +596,23 @@ async compile finishes (so the overlay lands even after more output
 streams in).  Does nothing when equations aren't renderable (see
 `latex-to-svg-available-p') — the raw faced text stands in.
 
-INLINE non-nil typesets LATEX in text style instead of display
-style; it is forwarded to `latex-to-svg' so inline and display
-renders of the same source don't collide in the cache.  Color and
-size are not baked in — `latex-to-svg' tints the color-independent
-SVG to the buffer foreground and scales it to the buffer font at
-display time."
+LATEX is the equation body with delimiters stripped; INLINE non-nil
+typesets it in text style, otherwise display style.  Since
+`latex-to-svg' renders its argument *verbatim*, we wrap the body
+here into valid body LaTeX (`$body$' inline, `$\\displaystyle body$'
+display) and pass that.  Color and size are not baked in —
+`latex-to-svg' tints the color-independent SVG to the buffer
+foreground and scales it to the buffer font at display time."
   (when (latex-to-svg-available-p)
     ;; Record the appearance (colors + font height) this render is for,
     ;; so a later theme / frame / font change can detect the difference
     ;; and re-render (a color change re-tints; it no longer recompiles).
     (setq agent-shell-math-renderer--rendered-appearance
           (latex-to-svg-appearance))
-    (let ((image (latex-to-svg latex :inline inline)))
+    (let* ((doc (if inline
+                    (format "$%s$" latex)
+                  (format "$\\displaystyle %s$" latex)))
+           (image (latex-to-svg doc)))
       (if image
           (agent-shell-math-renderer--overlay-image buffer start end image)
         ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
@@ -616,14 +620,14 @@ display time."
         (let ((s (copy-marker start))
               (e (copy-marker end)))
           (latex-to-svg
-           latex :inline inline
+           doc
            :callback
            (lambda ()
              (when (buffer-live-p buffer)
                (with-current-buffer buffer
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
-                  (latex-to-svg latex :inline inline)))))))))))
+                  (latex-to-svg doc)))))))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.
