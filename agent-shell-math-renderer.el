@@ -684,9 +684,7 @@ default) every buffer that has rendered equations.  Call after a
 theme, appearance, or font-size change so equation images pick up
 the new colors and size.
 
-The pixels-per-point calibration is dropped (via `latex-to-svg-flush-metrics')
-so it is re-measured (e.g. after a display / scaling change); images
-are then rebuilt at the current font scale from the on-disk SVGs —
+Images are rebuilt at the current font scale from the on-disk SVGs —
 cheap, no LaTeX recompile unless the color also changed.  The
 `latex-to-svg' in-memory image cache is keyed per display scale, so a
 new size just adds entries and a sibling buffer's warm images survive
@@ -694,7 +692,6 @@ new size just adds entries and a sibling buffer's warm images survive
 via `agent-shell-math-renderer--render', so unchanged buffers stay
 fast and untouched buffers refresh lazily when next displayed."
   (interactive)
-  (latex-to-svg-flush-metrics)
   (dolist (buf (if buffer
                    (list buffer)
                  (seq-filter
