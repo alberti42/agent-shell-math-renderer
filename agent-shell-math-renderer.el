@@ -6,8 +6,8 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.3.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.58.1") (latex-to-svg "0.3.1"))
+;; Version: 0.3.1
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.58.1") (latex-to-svg-backend "0.4.0"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -60,17 +60,17 @@
 ;; public `agent-shell-markdown-context', so it stays in sync with the
 ;; streaming render hook and uses no private agent-shell API.
 ;;
-;; Equation typesetting is delegated to the `latex-to-svg' library: this
+;; Equation typesetting is delegated to the `latex-to-svg-backend' library: this
 ;; module handles the markdown-specific detection (delimiters, inline
 ;; math, fenced blocks, streaming watermark) and image *placement* (via
-;; `display' text properties), while `latex-to-svg' compiles each unique
+;; `display' text properties), while `latex-to-svg-backend' compiles each unique
 ;; equation to a color- and size-independent SVG (cached on disk by
 ;; content, tinted and scaled at display time).  Compilation is
 ;; asynchronous; the image is overlaid when ready.  When the toolchain is
-;; absent or `latex-to-svg-use-placeholder' is set, a placeholder panel
+;; absent or `latex-to-svg-backend-use-placeholder' is set, a placeholder panel
 ;; boxing the raw LaTeX is shown instead.  Rendering-engine settings
 ;; (LaTeX/dvisvgm programs, preamble, cache directory, font scale,
-;; placeholder / non-graphic behaviour) live in the `latex-to-svg-*'
+;; placeholder / non-graphic behaviour) live in the `latex-to-svg-backend-*'
 ;; customization group.
 
 ;;; Code:
@@ -80,7 +80,7 @@
 (require 'agent-shell)
 (require 'agent-shell-markdown)
 (require 'comint)
-(require 'latex-to-svg)
+(require 'latex-to-svg-backend)
 (require 'map)
 (require 'seq)
 
@@ -205,8 +205,8 @@ can be added later if agents prove to need it."
 
 (defcustom agent-shell-math-renderer-inline-rescale 1.0
   "Size multiplier for inline math previews (`\\(...\\)').
-Applied on top of the engine's global `latex-to-svg-font-scale' via
-`latex-to-svg's `:rescale-by'.  Re-scales from cache (no recompile);
+Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
+`latex-to-svg-backend's `:rescale-by'.  Re-scales from cache (no recompile);
 after changing it, run `agent-shell-math-renderer-refresh' to apply."
   :type 'number
   :safe #'numberp
@@ -214,8 +214,8 @@ after changing it, run `agent-shell-math-renderer-refresh' to apply."
 
 (defcustom agent-shell-math-renderer-display-rescale 1.0
   "Size multiplier for display math previews (`\\=\\[...\\]', `$$...$$', fences).
-Applied on top of the engine's global `latex-to-svg-font-scale' via
-`latex-to-svg's `:rescale-by' — e.g. set to 1.1 for display equations a
+Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
+`latex-to-svg-backend's `:rescale-by' — e.g. set to 1.1 for display equations a
 touch larger than inline.  Re-scales from cache (no recompile); after
 changing it, run `agent-shell-math-renderer-refresh' to apply."
   :type 'number
@@ -244,7 +244,7 @@ submitted.  Rendering is deferred out of the submit command."
 (defvar-local agent-shell-math-renderer--rendered-appearance nil
   "The appearance signature this buffer's equations were rendered for.
 A list (FOREGROUND BACKGROUND FONT-HEIGHT) — see
-`latex-to-svg-appearance'.  Buffer-local:
+`latex-to-svg-backend-appearance'.  Buffer-local:
 each buffer tracks its own last-rendered appearance, so a refresh
 can re-render just the affected buffer and leave the others to
 re-render lazily when they are next displayed (see
@@ -608,42 +608,42 @@ is preserved."
 (defun agent-shell-math-renderer--render (buffer start end latex &optional inline)
   "Render LATEX over BUFFER's START..END as an equation image.
 
-Delegates typesetting to `latex-to-svg': overlays the image
+Delegates typesetting to `latex-to-svg-backend': overlays the image
 immediately when available (cached SVG or placeholder), else
 captures START / END as markers and overlays the result once the
 async compile finishes (so the overlay lands even after more output
 streams in).  Does nothing when equations aren't renderable (see
-`latex-to-svg-available-p') — the raw faced text stands in.
+`latex-to-svg-backend-available-p') — the raw faced text stands in.
 
 LATEX is the equation body with delimiters stripped; INLINE non-nil
 typesets it in text style, otherwise display style.  Since
-`latex-to-svg' renders its argument *verbatim*, we wrap the body
+`latex-to-svg-backend' renders its argument *verbatim*, we wrap the body
 here into valid body LaTeX (`$body$' inline, `$\\displaystyle body$'
 display) and pass that.  Color and size are not baked in —
-`latex-to-svg' tints the color-independent SVG to the buffer
+`latex-to-svg-backend' tints the color-independent SVG to the buffer
 foreground and scales it to the buffer font at display time, the
 latter by `agent-shell-math-renderer-inline-rescale' /
 `-display-rescale' (via `:rescale-by') for INLINE / display math."
-  (when (latex-to-svg-available-p)
+  (when (latex-to-svg-backend-available-p)
     ;; Record the appearance (colors + font height) this render is for,
     ;; so a later theme / frame / font change can detect the difference
     ;; and re-render (a color change re-tints; it no longer recompiles).
     (setq agent-shell-math-renderer--rendered-appearance
-          (latex-to-svg-appearance))
+          (latex-to-svg-backend-appearance))
     (let* ((doc (if inline
                     (format "$%s$" latex)
                   (format "$\\displaystyle %s$" latex)))
            (rescale (if inline
                         agent-shell-math-renderer-inline-rescale
                       agent-shell-math-renderer-display-rescale))
-           (image (latex-to-svg doc :rescale-by rescale)))
+           (image (latex-to-svg-backend doc :rescale-by rescale)))
       (if image
           (agent-shell-math-renderer--overlay-image buffer start end image)
         ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
         ;; the region as markers so it survives further streaming output.
         (let ((s (copy-marker start))
               (e (copy-marker end)))
-          (latex-to-svg
+          (latex-to-svg-backend
            doc
            :rescale-by rescale
            :callback
@@ -652,7 +652,7 @@ latter by `agent-shell-math-renderer-inline-rescale' /
                (with-current-buffer buffer
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
-                  (latex-to-svg doc :rescale-by rescale)))))))))))
+                  (latex-to-svg-backend doc :rescale-by rescale)))))))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.
@@ -686,7 +686,7 @@ the new colors and size.
 
 Images are rebuilt at the current font scale from the on-disk SVGs —
 cheap, no LaTeX recompile unless the color also changed.  The
-`latex-to-svg' in-memory image cache is keyed per display scale, so a
+`latex-to-svg-backend' in-memory image cache is keyed per display scale, so a
 new size just adds entries and a sibling buffer's warm images survive
 — no clear needed.  Each re-rendered buffer records its new appearance
 via `agent-shell-math-renderer--render', so unchanged buffers stay
@@ -718,11 +718,11 @@ Acts only on the current buffer — the one the firing hook just made
 relevant (displayed, themed, or zoomed) — so making one chat visible
 never re-renders the others; each refreshes lazily when it is itself
 displayed.  The appearance signature folds in both colors and the
-buffer font height (see `latex-to-svg-appearance'), so a font-size
+buffer font height (see `latex-to-svg-backend-appearance'), so a font-size
 change is picked up just like a color change."
   (when (and agent-shell-math-renderer-enabled
              agent-shell-math-renderer--present
-             (not (equal (latex-to-svg-appearance)
+             (not (equal (latex-to-svg-backend-appearance)
                          agent-shell-math-renderer--rendered-appearance)))
     (agent-shell-math-renderer-refresh (current-buffer))))
 

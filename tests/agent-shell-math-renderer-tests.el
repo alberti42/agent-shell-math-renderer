@@ -16,12 +16,12 @@
              (expand-file-name ".." (file-name-directory
                                      (or load-file-name buffer-file-name))))
 
-;; `latex-to-svg' (the extracted rendering engine, a hard dependency of the
+;; `latex-to-svg-backend' (the extracted rendering engine, a hard dependency of the
 ;; renderer) is a sibling repo; add it to `load-path' so the module's
-;; `(require 'latex-to-svg)' resolves when running the suite from a checkout.
+;; `(require 'latex-to-svg-backend)' resolves when running the suite from a checkout.
 ;; Override the location with LATEX_TO_SVG_DIR for other layouts.
 (let ((dir (or (getenv "LATEX_TO_SVG_DIR")
-               (expand-file-name "../../latex-to-svg"
+               (expand-file-name "../../latex-to-svg-backend"
                                  (file-name-directory
                                   (or load-file-name buffer-file-name))))))
   (when (file-directory-p dir)
@@ -553,7 +553,7 @@ after text.
       (setq agent-shell-math-renderer--rendered-appearance
             '("#000000" "#ffffff" 20))
       (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
-                ((symbol-function 'latex-to-svg--svg-color)
+                ((symbol-function 'latex-to-svg-backend--svg-color)
                  (lambda (_face attr _fallback)
                    (if (eq attr :foreground) "#000000" "#ffffff")))
                 ((symbol-function 'default-font-height) (lambda (&rest _) 30))
@@ -572,7 +572,7 @@ after text.
       (setq agent-shell-math-renderer--present nil)
       (setq agent-shell-math-renderer--rendered-appearance nil)
       (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
-                ((symbol-function 'latex-to-svg--svg-color)
+                ((symbol-function 'latex-to-svg-backend--svg-color)
                  (lambda (_face attr _fallback)
                    (if (eq attr :foreground) "#000000" "#ffffff")))
                 ((symbol-function 'default-font-height) (lambda (&rest _) 30))
