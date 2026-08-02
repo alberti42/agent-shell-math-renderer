@@ -607,6 +607,173 @@ after text.
           (should (file-directory-p dir)))
       (delete-directory parent t))))
 
+(defun agent-shell-math-renderer-tests--finish-fake-process
+    (process exit-status &optional output)
+  "Finish fake PROCESS with EXIT-STATUS, optionally appending OUTPUT."
+  (when output
+    (with-current-buffer (plist-get (aref process 3) :buffer)
+      (goto-char (point-max))
+      (insert output)))
+  (aset process 1 'exit)
+  (aset process 2 exit-status)
+  (funcall (plist-get (aref process 3) :sentinel) process "finished\n"))
+
+(defmacro agent-shell-math-renderer-tests--with-fake-processes (&rest body)
+  "Run BODY with direct asynchronous processes captured as fake processes."
+  (declare (indent 0) (debug t))
+  `(let* ((asmr-test-cache-dir (make-temp-file "asm-process-cache" t))
+          (agent-shell-math-renderer-cache-directory asmr-test-cache-dir)
+          (agent-shell-math-renderer-latex-program "latex-direct")
+          (agent-shell-math-renderer-dvisvgm-program "dvisvgm-direct")
+          (agent-shell-math-renderer--pending (make-hash-table :test 'equal))
+          (asmr-test-processes nil)
+          (asmr-test-warnings nil))
+     (unwind-protect
+         (cl-letf
+             (((symbol-function 'make-process)
+               (lambda (&rest plist)
+                 (let ((process
+                        (vector 'fake-process 'run 0 plist default-directory)))
+                   (setq asmr-test-processes
+                         (append asmr-test-processes (list process)))
+                   process)))
+              ((symbol-function 'process-status)
+               (lambda (process) (aref process 1)))
+              ((symbol-function 'process-exit-status)
+               (lambda (process) (aref process 2)))
+              ((symbol-function 'display-warning)
+               (lambda (&rest warning)
+                 (push warning asmr-test-warnings)))
+              ((symbol-function 'start-process-shell-command)
+               (lambda (&rest _)
+                 (error "A shell pipeline must not be used"))))
+           ,@body)
+       (dolist (process asmr-test-processes)
+         (let ((buffer (plist-get (aref process 3) :buffer))
+               (dir (aref process 4)))
+           (when (buffer-live-p buffer)
+             (kill-buffer buffer))
+           (when (and (file-directory-p dir)
+                      (string-prefix-p
+                       "agent-shell-math-renderer"
+                       (file-name-nondirectory (directory-file-name dir))))
+             (delete-directory dir t))))
+       (delete-directory asmr-test-cache-dir t))))
+
+(ert-deftest
+    agent-shell-math-renderer-compile-direct-argv-works-without-posix-shell ()
+  ;; A Nu or invalid user shell is irrelevant: only latex is started first,
+  ;; then dvisvgm after the DVI appears, and the successful SVG is overlaid.
+  (agent-shell-math-renderer-tests--with-fake-processes
+    (let ((shell-file-name "nu")
+          (explicit-shell-file-name "/definitely/not-a-posix-shell")
+          (target (generate-new-buffer " *asm-direct-target*"))
+          overlay-call)
+      (unwind-protect
+          (cl-letf
+              (((symbol-function 'agent-shell-math-renderer--cached-image)
+                (lambda (_key) 'fake-image))
+               ((symbol-function 'agent-shell-math-renderer--overlay-image)
+                (lambda (buffer start end image)
+                  (setq overlay-call (list buffer start end image)))))
+            (with-current-buffer target
+              (insert "xy"))
+            (puthash "success" (list (list target 1 2))
+                     agent-shell-math-renderer--pending)
+            (agent-shell-math-renderer--compile "success" "x^2")
+            (should (= (length asmr-test-processes) 1))
+            (let* ((latex-process (car asmr-test-processes))
+                   (latex-plist (aref latex-process 3))
+                   (latex-command (plist-get latex-plist :command))
+                   (scratch (aref latex-process 4))
+                   (output-buffer (plist-get latex-plist :buffer))
+                   (dvi (expand-file-name "equation.dvi" scratch))
+                   (svg (expand-file-name "success.svg" asmr-test-cache-dir)))
+              (should (equal (car latex-command) "latex-direct"))
+              (should (equal (nth 1 latex-command)
+                             "-interaction=nonstopmode"))
+              (should (equal (nth 2 latex-command) "-halt-on-error"))
+              (should (equal (file-name-nondirectory (nth 3 latex-command))
+                             "equation.tex"))
+              (should (equal (plist-get latex-plist :connection-type) 'pipe))
+              (should (plist-get latex-plist :noquery))
+              (with-temp-file dvi
+                (insert "fake dvi"))
+              (agent-shell-math-renderer-tests--finish-fake-process
+               latex-process 0)
+              (should (= (length asmr-test-processes) 2))
+              (let* ((dvisvgm-process (cadr asmr-test-processes))
+                     (dvisvgm-command
+                      (plist-get (aref dvisvgm-process 3) :command)))
+                (should
+                 (equal dvisvgm-command
+                        (list "dvisvgm-direct"
+                              "--no-fonts" "--exact-bbox" "--currentcolor"
+                              "--scale=1" "-o" svg dvi)))
+                (with-temp-file svg
+                  (insert "<svg/>"))
+                (agent-shell-math-renderer-tests--finish-fake-process
+                 dvisvgm-process 0))
+              (should (equal overlay-call (list target 1 2 'fake-image)))
+              (should-not (gethash "success"
+                                   agent-shell-math-renderer--pending))
+              (should-not (file-directory-p scratch))
+              (should-not (buffer-live-p output-buffer))))
+        (when (buffer-live-p target)
+          (kill-buffer target))))))
+
+(ert-deftest agent-shell-math-renderer-latex-failure-saves-process-output ()
+  ;; If latex fails before producing equation.log, its captured stderr is
+  ;; persisted, dvisvgm is not started, and pending/scratch state is cleaned.
+  (agent-shell-math-renderer-tests--with-fake-processes
+    (let ((shell-file-name "/definitely/not-a-shell")
+          (explicit-shell-file-name "nu"))
+      (puthash "latex-fail" 'queued agent-shell-math-renderer--pending)
+      (agent-shell-math-renderer--compile "latex-fail" "bad")
+      (let* ((latex-process (car asmr-test-processes))
+             (output-buffer (plist-get (aref latex-process 3) :buffer))
+             (scratch (aref latex-process 4))
+             (log (expand-file-name "latex-fail.log" asmr-test-cache-dir)))
+        (agent-shell-math-renderer-tests--finish-fake-process
+         latex-process 1 "latex stderr marker\n")
+        (should (= (length asmr-test-processes) 1))
+        (should-not (gethash "latex-fail"
+                             agent-shell-math-renderer--pending))
+        (should-not (file-directory-p scratch))
+        (should-not (buffer-live-p output-buffer))
+        (should (file-exists-p log))
+        (with-temp-buffer
+          (insert-file-contents log)
+          (should (search-forward "latex stderr marker" nil t)))
+        (should asmr-test-warnings)))))
+
+(ert-deftest agent-shell-math-renderer-dvisvgm-failure-keeps-both-logs ()
+  ;; A second-stage failure keeps equation.log and dvisvgm's own output.
+  (agent-shell-math-renderer-tests--with-fake-processes
+    (puthash "svg-fail" 'queued agent-shell-math-renderer--pending)
+    (agent-shell-math-renderer--compile "svg-fail" "bad-svg")
+    (let* ((latex-process (car asmr-test-processes))
+           (scratch (aref latex-process 4))
+           (dvi (expand-file-name "equation.dvi" scratch))
+           (tex-log (expand-file-name "equation.log" scratch))
+           (log (expand-file-name "svg-fail.log" asmr-test-cache-dir)))
+      (with-temp-file dvi
+        (insert "fake dvi"))
+      (with-temp-file tex-log
+        (insert "equation.log marker\n"))
+      (agent-shell-math-renderer-tests--finish-fake-process latex-process 0)
+      (should (= (length asmr-test-processes) 2))
+      (agent-shell-math-renderer-tests--finish-fake-process
+       (cadr asmr-test-processes) 2 "dvisvgm stderr marker\n")
+      (should-not (gethash "svg-fail" agent-shell-math-renderer--pending))
+      (should-not (file-directory-p scratch))
+      (should (file-exists-p log))
+      (with-temp-buffer
+        (insert-file-contents log)
+        (should (search-forward "equation.log marker" nil t))
+        (should (search-forward "dvisvgm stderr marker" nil t)))
+      (should asmr-test-warnings))))
+
 (ert-deftest agent-shell-math-renderer-display-scale-is-1-when-non-graphical ()
   ;; Off a graphical frame (batch, the daemon-prerender path) the font
   ;; height is unknown, so the image is left at natural size — this is

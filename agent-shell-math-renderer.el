@@ -974,24 +974,97 @@ finishes."
     (unless pending
       (agent-shell-math-renderer--compile key latex inline))))
 
-(defun agent-shell-math-renderer--compile-failed (key latex dir)
-  "Handle a failed LaTeX compile for KEY with source LATEX.
-DIR is the scratch directory containing the build log.  The log
-is copied to a persistent file in the math cache directory, and a
+(defun agent-shell-math-renderer--process-output (buffer)
+  "Return BUFFER's process output as an unpropertized string."
+  (if (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (buffer-substring-no-properties (point-min) (point-max)))
+    ""))
+
+(defun agent-shell-math-renderer--start-process
+    (stage command dir output-buffer sentinel)
+  "Start STAGE directly with argv COMMAND in DIR.
+Send stdout and stderr to OUTPUT-BUFFER and install SENTINEL.  No
+shell is involved, so this is independent of `shell-file-name'."
+  (with-current-buffer output-buffer
+    (goto-char (point-max))
+    (insert (format "[%s] %S\n" stage command)))
+  (let ((default-directory (file-name-as-directory dir)))
+    (make-process
+     :name (format "agent-shell-math-renderer-%s" stage)
+     :buffer output-buffer
+     :command command
+     :connection-type 'pipe
+     :noquery t
+     :sentinel sentinel)))
+
+(defun agent-shell-math-renderer--run-process-chain
+    (dir output-buffer stages done)
+  "Run STAGES sequentially in DIR, logging to OUTPUT-BUFFER, then call DONE.
+Each element of STAGES is (NAME COMMAND OUTPUT-FILE), where COMMAND
+is an argv list passed directly to `make-process'.  A stage succeeds
+only when it exits with status zero and OUTPUT-FILE exists.  DONE is
+called once with non-nil on complete success and nil on any failed
+exit, signal, missing output, or process startup error."
+  (cl-labels
+      ((run
+        (remaining)
+        (if (null remaining)
+            (funcall done t)
+          (pcase-let* ((`(,stage ,command ,output-file) (car remaining))
+                       (settled nil))
+            (condition-case err
+                (agent-shell-math-renderer--start-process
+                 stage command dir output-buffer
+                 (lambda (process _event)
+                   (when (and (not settled)
+                              (memq (process-status process) '(exit signal)))
+                     (setq settled t)
+                     (if (and (eq (process-status process) 'exit)
+                              (zerop (process-exit-status process))
+                              (file-exists-p output-file))
+                         (run (cdr remaining))
+                       (funcall done nil)))))
+              (error
+               (with-current-buffer output-buffer
+                 (goto-char (point-max))
+                 (insert (format "%s failed to start: %s\n"
+                                 stage (error-message-string err))))
+               (funcall done nil)))))))
+    (run stages)))
+
+(defun agent-shell-math-renderer--compile-failed
+    (key latex dir &optional process-output)
+  "Handle a failed LaTeX-to-SVG compile for KEY with source LATEX.
+DIR is the scratch directory containing equation.log when LaTeX
+created one.  PROCESS-OUTPUT is the captured stdout and stderr from
+the direct LaTeX/dvisvgm processes.  A persistent log containing the
+available diagnostics is written to the math cache directory, and a
 warning is emitted with a clickable link to it."
   (let* ((log-src (expand-file-name "equation.log" dir))
          (log-dst (expand-file-name (concat key ".log")
                                     (agent-shell-math-renderer--cache-dir)))
+         (have-tex-log (file-exists-p log-src))
+         (have-output (not (string-empty-p (or process-output ""))))
          (snippet (truncate-string-to-width latex 60 nil nil t)))
-    (when (file-exists-p log-src)
-      (copy-file log-src log-dst t))
+    (when (or have-tex-log have-output)
+      (with-temp-file log-dst
+        (when have-tex-log
+          (insert-file-contents log-src)
+          (goto-char (point-max))
+          (unless (bolp)
+            (insert "\n")))
+        (when have-output
+          (when have-tex-log
+            (insert "\n--- process output ---\n"))
+          (insert process-output))))
     (display-warning
      'agent-shell-math-renderer
-     (format "LaTeX compile failed for: %s\nSee log: %s"
+     (format "LaTeX-to-SVG compile failed for: %s\nSee log: %s"
              snippet
              (if (file-exists-p log-dst) log-dst "(no log available)"))
      :warning)
-    (when (file-exists-p log-dst)
+    (when (and (file-exists-p log-dst) (get-buffer "*Warnings*"))
       (with-current-buffer "*Warnings*"
         (let ((inhibit-read-only t))
           (goto-char (point-max))
@@ -1028,7 +1101,9 @@ portable; it can slot in here without changing callers."
          (tex (expand-file-name "equation.tex" dir))
          (dvi (expand-file-name "equation.dvi" dir))
          (svg (agent-shell-math-renderer--svg-file key))
-         (cleanup (lambda () (ignore-errors (delete-directory dir t)))))
+         (cleanup (lambda () (ignore-errors (delete-directory dir t))))
+         (output-buffer (generate-new-buffer
+                         (format " *agent-shell-math-renderer-%s*" key))))
     (with-temp-file tex
       (insert agent-shell-math-renderer-preamble "\n"
               (if (string-empty-p agent-shell-math-renderer-appended-preamble)
@@ -1050,39 +1125,46 @@ portable; it can slot in here without changing callers."
     ;; means the SVG carries the equation's natural point dimensions.
     ;; `--currentcolor' rewrites the default ink to the `currentColor' token
     ;; so the file is color-independent (tinted at display time).
-    (let ((command
-           (format "cd %s && %s -interaction=nonstopmode -halt-on-error %s && %s --no-fonts --exact-bbox --currentcolor --scale=1 -o %s %s"
-                   (shell-quote-argument dir)
-                   (shell-quote-argument agent-shell-math-renderer-latex-program)
-                   (shell-quote-argument tex)
-                   (shell-quote-argument agent-shell-math-renderer-dvisvgm-program)
-                   (shell-quote-argument svg)
-                   (shell-quote-argument dvi))))
-      (condition-case err
-          (set-process-sentinel
-           (start-process-shell-command "agent-shell-math-renderer" nil command)
-           (lambda (process _event)
-             (when (memq (process-status process) '(exit signal))
-               (if (and (eq (process-status process) 'exit)
-                        (zerop (process-exit-status process))
-                        (file-exists-p svg))
-                   (dolist (region (gethash key agent-shell-math-renderer--pending))
-                     (let ((buffer (nth 0 region))
-                           (start (nth 1 region))
-                           (end (nth 2 region)))
-                       (when (buffer-live-p buffer)
-                         (with-current-buffer buffer
-                           (agent-shell-math-renderer--overlay-image
-                            buffer start end
-                            (agent-shell-math-renderer--cached-image key))))))
-                 (agent-shell-math-renderer--compile-failed key latex dir))
-               (remhash key agent-shell-math-renderer--pending)
-               (funcall cleanup))))
-        (error
-         ;; Couldn't even spawn the process — drop the queue and clean up.
+    (agent-shell-math-renderer--run-process-chain
+     dir output-buffer
+     (list
+      (list 'latex
+            (list agent-shell-math-renderer-latex-program
+                  "-interaction=nonstopmode"
+                  "-halt-on-error"
+                  tex)
+            dvi)
+      (list 'dvisvgm
+            (list agent-shell-math-renderer-dvisvgm-program
+                  "--no-fonts"
+                  "--exact-bbox"
+                  "--currentcolor"
+                  "--scale=1"
+                  "-o"
+                  svg
+                  dvi)
+            svg))
+     (lambda (success)
+       (unwind-protect
+           (if success
+               (dolist
+                   (region
+                    (gethash key agent-shell-math-renderer--pending))
+                 (let ((buffer (nth 0 region))
+                       (start (nth 1 region))
+                       (end (nth 2 region)))
+                   (when (buffer-live-p buffer)
+                     (with-current-buffer buffer
+                       (agent-shell-math-renderer--overlay-image
+                        buffer start end
+                        (agent-shell-math-renderer--cached-image key))))))
+             (agent-shell-math-renderer--compile-failed
+              key latex dir
+              (agent-shell-math-renderer--process-output output-buffer)))
          (remhash key agent-shell-math-renderer--pending)
-         (funcall cleanup)
-         (signal (car err) (cdr err)))))))
+         (when (buffer-live-p output-buffer)
+           (kill-buffer output-buffer))
+         (funcall cleanup))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.
