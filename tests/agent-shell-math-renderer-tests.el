@@ -441,9 +441,12 @@ E=mc^2
                    (push (list latex inline) calls))))
         (let ((rendered (agent-shell-markdown-convert title)))
           (should-not calls)
-          (should (eq (get-text-property
-                       0 'agent-shell-ui-section rendered)
-                      'label-right))
+          ;; Agent Shell's contract is that the property covers the whole
+          ;; separately-rendered label, making the `point-min' guard sound.
+          (should-not
+           (text-property-not-all
+            0 (length rendered)
+            'agent-shell-ui-section 'label-right rendered))
           (should-not
            (text-property-not-all
             0 (length rendered) 'agent-shell-math-renderer-source nil rendered)))))))
@@ -459,7 +462,10 @@ E=mc^2
                  (lambda (_buffer _start _end latex &optional inline)
                    (push (list latex inline) calls))))
         (let* ((rendered (agent-shell-markdown-convert body))
-               (math-start (string-search "\\(x^2\\)" rendered)))
+               (math-start
+                (text-property-not-all
+                 0 (length rendered)
+                 'agent-shell-math-renderer-source nil rendered)))
           (should (equal calls '(("x^2" t))))
           (should math-start)
           (should (equal (get-text-property

@@ -1291,8 +1291,10 @@ contain shell grouping written as `\\(...\\)', which is not math.
 Returns an alist with `:watermark' when an unclosed delimiter
 needs streaming protection, nil otherwise."
   (when (and agent-shell-math-renderer-enabled
-             ;; Agent Shell renders each fragment section in a separately
-             ;; narrowed pass, retaining this property on its contents.
+             ;; `agent-shell-ui--insert-fragment' applies this property to
+             ;; the whole label, and `agent-shell--update-fragment' narrows
+             ;; exactly to that label before rendering its Markdown.  Thus
+             ;; `point-min' identifies the current fragment section.
              (not (eq (get-text-property (point-min)
                                          'agent-shell-ui-section)
                       'label-right)))
