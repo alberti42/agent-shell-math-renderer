@@ -427,6 +427,48 @@ E=mc^2
                      (" and " nil)
                      ("\\(b\\)" (agent-shell-math-renderer)))))))
 
+(ert-deftest agent-shell-math-renderer-inline-math-skips-ui-label-right ()
+  ;; Agent Shell renders a tool's right-hand label as Markdown in its own
+  ;; narrowed pass.  Shell grouping in that label is literal command syntax,
+  ;; not inline math, and must never reach the LaTeX renderer.
+  (agent-shell-math-renderer-tests--enabled
+    (let* ((calls '())
+           (title (propertize
+                   "find . \\( -name 'Makefile' -o -name 'justfile' -o -name '*.nix' \\)"
+                   'agent-shell-ui-section 'label-right)))
+      (cl-letf (((symbol-function 'agent-shell-math-renderer--render)
+                 (lambda (_buffer _start _end latex &optional inline)
+                   (push (list latex inline) calls))))
+        (let ((rendered (agent-shell-markdown-convert title)))
+          (should-not calls)
+          (should (eq (get-text-property
+                       0 'agent-shell-ui-section rendered)
+                      'label-right))
+          (should-not
+           (text-property-not-all
+            0 (length rendered) 'agent-shell-math-renderer-source nil rendered)))))))
+
+(ert-deftest agent-shell-math-renderer-inline-math-renders-in-ui-body ()
+  ;; Skipping UI labels must not suppress equations in an Agent Shell
+  ;; fragment's body, which carries the same property with value `body'.
+  (agent-shell-math-renderer-tests--enabled
+    (let ((calls '())
+          (body (propertize "Result: \\(x^2\\)."
+                           'agent-shell-ui-section 'body)))
+      (cl-letf (((symbol-function 'agent-shell-math-renderer--render)
+                 (lambda (_buffer _start _end latex &optional inline)
+                   (push (list latex inline) calls))))
+        (let* ((rendered (agent-shell-markdown-convert body))
+               (math-start (string-search "\\(x^2\\)" rendered)))
+          (should (equal calls '(("x^2" t))))
+          (should math-start)
+          (should (equal (get-text-property
+                          math-start 'agent-shell-math-renderer-source rendered)
+                         "x^2"))
+          (should (eq (get-text-property
+                       math-start 'agent-shell-ui-section rendered)
+                      'body)))))))
+
 (ert-deftest agent-shell-math-renderer-inline-math-in-inline-code-untouched ()
   ;; A `\\(...\\)' inside an inline-code span is literal code, not math:
   ;; it keeps the inline-code face and gets no math face.

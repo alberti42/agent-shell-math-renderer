@@ -1286,9 +1286,16 @@ math blocks in the current (narrowed) buffer.  CONTEXT is an
 alist with `:source-blocks' (fenced-block descriptors) and
 `:inline-code-ranges' (marker ranges over inline `code' span
 bodies, used to keep `\\(...\\)' inside a code span literal).
+Agent Shell's right-hand UI labels are ignored: tool commands can
+contain shell grouping written as `\\(...\\)', which is not math.
 Returns an alist with `:watermark' when an unclosed delimiter
 needs streaming protection, nil otherwise."
-  (when agent-shell-math-renderer-enabled
+  (when (and agent-shell-math-renderer-enabled
+             ;; Agent Shell renders each fragment section in a separately
+             ;; narrowed pass, retaining this property on its contents.
+             (not (eq (get-text-property (point-min)
+                                         'agent-shell-ui-section)
+                      'label-right)))
     (agent-shell-math-renderer--render-context context t)))
 
 (add-hook 'agent-shell-markdown-render-functions
