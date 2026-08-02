@@ -608,15 +608,26 @@ after text.
       (delete-directory parent t))))
 
 (defun agent-shell-math-renderer-tests--finish-fake-process
-    (process exit-status &optional output)
-  "Finish fake PROCESS with EXIT-STATUS, optionally appending OUTPUT."
+    (process exit-status &optional output status event)
+  "Finish fake PROCESS with EXIT-STATUS, optionally appending OUTPUT.
+STATUS defaults to `exit', and EVENT defaults to a status-appropriate
+completion event."
   (when output
     (with-current-buffer (plist-get (aref process 3) :buffer)
       (goto-char (point-max))
       (insert output)))
-  (aset process 1 'exit)
-  (aset process 2 exit-status)
-  (funcall (plist-get (aref process 3) :sentinel) process "finished\n"))
+  (let ((status (or status 'exit)))
+    (aset process 1 status)
+    (aset process 2 exit-status)
+    (funcall
+     (plist-get (aref process 3) :sentinel)
+     process
+     (or event
+         (cond
+          ((eq status 'signal)
+           (format "killed by signal %d\n" exit-status))
+          ((zerop exit-status) "finished\n")
+          (t (format "exited abnormally with code %d\n" exit-status)))))))
 
 (defmacro agent-shell-math-renderer-tests--with-fake-processes (&rest body)
   "Run BODY with direct asynchronous processes captured as fake processes."
@@ -630,12 +641,13 @@ after text.
           (asmr-test-warnings nil))
      (unwind-protect
          (cl-letf
-             (((symbol-function 'make-process)
+              (((symbol-function 'make-process)
                (lambda (&rest plist)
+                 (unless (buffer-live-p (plist-get plist :buffer))
+                   (error "Process output buffer is not live"))
                  (let ((process
                         (vector 'fake-process 'run 0 plist default-directory)))
-                   (setq asmr-test-processes
-                         (append asmr-test-processes (list process)))
+                   (push process asmr-test-processes)
                    process)))
               ((symbol-function 'process-status)
                (lambda (process) (aref process 1)))
@@ -702,7 +714,7 @@ after text.
               (agent-shell-math-renderer-tests--finish-fake-process
                latex-process 0)
               (should (= (length asmr-test-processes) 2))
-              (let* ((dvisvgm-process (cadr asmr-test-processes))
+              (let* ((dvisvgm-process (car asmr-test-processes))
                      (dvisvgm-command
                       (plist-get (aref dvisvgm-process 3) :command)))
                 (should
@@ -744,11 +756,60 @@ after text.
         (should (file-exists-p log))
         (with-temp-buffer
           (insert-file-contents log)
-          (should (search-forward "latex stderr marker" nil t)))
+          (should (search-forward "latex stderr marker" nil t))
+          (should (search-forward
+                   "[latex] status=exit exit-status=1" nil t))
+          (should (search-forward
+                   "event=\"exited abnormally with code 1\\n\"" nil t)))
         (should asmr-test-warnings)))))
 
-(ert-deftest agent-shell-math-renderer-dvisvgm-failure-keeps-both-logs ()
-  ;; A second-stage failure keeps equation.log and dvisvgm's own output.
+(ert-deftest agent-shell-math-renderer-missing-stage-output-is-logged ()
+  ;; A zero exit without the promised DVI fails with an explicit diagnostic.
+  (agent-shell-math-renderer-tests--with-fake-processes
+    (puthash "missing-dvi" 'queued agent-shell-math-renderer--pending)
+    (agent-shell-math-renderer--compile "missing-dvi" "no-dvi")
+    (let* ((latex-process (car asmr-test-processes))
+           (scratch (aref latex-process 4))
+           (dvi (expand-file-name "equation.dvi" scratch))
+           (log (expand-file-name "missing-dvi.log" asmr-test-cache-dir)))
+      (should-not (file-exists-p dvi))
+      (agent-shell-math-renderer-tests--finish-fake-process latex-process 0)
+      (should (= (length asmr-test-processes) 1))
+      (should-not (gethash "missing-dvi"
+                           agent-shell-math-renderer--pending))
+      (should-not (file-directory-p scratch))
+      (should (file-exists-p log))
+      (with-temp-buffer
+        (insert-file-contents log)
+        (should (search-forward
+                 "[latex] status=exit exit-status=0" nil t))
+        (should (search-forward "[latex] expected output missing:" nil t))
+        (should (search-forward "equation.dvi" nil t)))
+      (should asmr-test-warnings))))
+
+(ert-deftest agent-shell-math-renderer-dead-process-log-still-cleans-up ()
+  ;; Diagnostic logging is best-effort: killing its hidden buffer before the
+  ;; next stage starts must not suppress DONE or leak pending/scratch state.
+  (agent-shell-math-renderer-tests--with-fake-processes
+    (puthash "dead-log" 'queued agent-shell-math-renderer--pending)
+    (agent-shell-math-renderer--compile "dead-log" "x")
+    (let* ((latex-process (car asmr-test-processes))
+           (output-buffer (plist-get (aref latex-process 3) :buffer))
+           (scratch (aref latex-process 4))
+           (dvi (expand-file-name "equation.dvi" scratch)))
+      (with-temp-file dvi
+        (insert "fake dvi"))
+      (kill-buffer output-buffer)
+      ;; Starting dvisvgm with the dead buffer raises internally.  The chain
+      ;; must catch that startup error and invoke its failure callback anyway.
+      (agent-shell-math-renderer-tests--finish-fake-process latex-process 0)
+      (should (= (length asmr-test-processes) 1))
+      (should-not (gethash "dead-log" agent-shell-math-renderer--pending))
+      (should-not (file-directory-p scratch))
+      (should asmr-test-warnings))))
+
+(ert-deftest agent-shell-math-renderer-dvisvgm-signal-keeps-both-logs ()
+  ;; A second-stage signal keeps equation.log, output, and signal details.
   (agent-shell-math-renderer-tests--with-fake-processes
     (puthash "svg-fail" 'queued agent-shell-math-renderer--pending)
     (agent-shell-math-renderer--compile "svg-fail" "bad-svg")
@@ -764,14 +825,19 @@ after text.
       (agent-shell-math-renderer-tests--finish-fake-process latex-process 0)
       (should (= (length asmr-test-processes) 2))
       (agent-shell-math-renderer-tests--finish-fake-process
-       (cadr asmr-test-processes) 2 "dvisvgm stderr marker\n")
+       (car asmr-test-processes) 9 "dvisvgm stderr marker\n"
+       'signal "killed by signal 9\n")
       (should-not (gethash "svg-fail" agent-shell-math-renderer--pending))
       (should-not (file-directory-p scratch))
       (should (file-exists-p log))
       (with-temp-buffer
         (insert-file-contents log)
         (should (search-forward "equation.log marker" nil t))
-        (should (search-forward "dvisvgm stderr marker" nil t)))
+        (should (search-forward "dvisvgm stderr marker" nil t))
+        (should (search-forward
+                 "[dvisvgm] status=signal exit-status=9" nil t))
+        (should (search-forward
+                 "event=\"killed by signal 9\\n\"" nil t)))
       (should asmr-test-warnings))))
 
 (ert-deftest agent-shell-math-renderer-display-scale-is-1-when-non-graphical ()

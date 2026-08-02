@@ -981,14 +981,29 @@ finishes."
         (buffer-substring-no-properties (point-min) (point-max)))
     ""))
 
+(defun agent-shell-math-renderer--append-process-log (buffer message)
+  "Append MESSAGE as a line to process log BUFFER when possible.
+Diagnostics are best-effort: a killed, read-only, or otherwise
+unwritable BUFFER must never prevent the process chain from settling."
+  (when (buffer-live-p buffer)
+    (condition-case nil
+        (with-current-buffer buffer
+          (let ((inhibit-read-only t))
+            (goto-char (point-max))
+            (unless (bolp)
+              (insert "\n"))
+            (insert message)
+            (unless (string-suffix-p "\n" message)
+              (insert "\n"))))
+      (error nil))))
+
 (defun agent-shell-math-renderer--start-process
     (stage command dir output-buffer sentinel)
   "Start STAGE directly with argv COMMAND in DIR.
 Send stdout and stderr to OUTPUT-BUFFER and install SENTINEL.  No
 shell is involved, so this is independent of `shell-file-name'."
-  (with-current-buffer output-buffer
-    (goto-char (point-max))
-    (insert (format "[%s] %S\n" stage command)))
+  (agent-shell-math-renderer--append-process-log
+   output-buffer (format "[%s] %S" stage command))
   (let ((default-directory (file-name-as-directory dir)))
     (make-process
      :name (format "agent-shell-math-renderer-%s" stage)
@@ -1002,10 +1017,12 @@ shell is involved, so this is independent of `shell-file-name'."
     (dir output-buffer stages done)
   "Run STAGES sequentially in DIR, logging to OUTPUT-BUFFER, then call DONE.
 Each element of STAGES is (NAME COMMAND OUTPUT-FILE), where COMMAND
-is an argv list passed directly to `make-process'.  A stage succeeds
-only when it exits with status zero and OUTPUT-FILE exists.  DONE is
-called once with non-nil on complete success and nil on any failed
-exit, signal, missing output, or process startup error."
+is an argv list passed directly to `make-process'.  Each stage's
+terminal status, exit status, and sentinel event are logged to
+OUTPUT-BUFFER.  A stage succeeds only when it exits with status zero
+and OUTPUT-FILE exists.  DONE is called once with non-nil on complete
+success and nil on any failed exit, signal, missing output, or process
+startup error."
   (cl-labels
       ((run
         (remaining)
@@ -1016,20 +1033,35 @@ exit, signal, missing output, or process startup error."
             (condition-case err
                 (agent-shell-math-renderer--start-process
                  stage command dir output-buffer
-                 (lambda (process _event)
-                   (when (and (not settled)
-                              (memq (process-status process) '(exit signal)))
-                     (setq settled t)
-                     (if (and (eq (process-status process) 'exit)
-                              (zerop (process-exit-status process))
-                              (file-exists-p output-file))
-                         (run (cdr remaining))
-                       (funcall done nil)))))
+                 (lambda (process event)
+                   (let ((status (process-status process)))
+                     (when (and (not settled)
+                                (memq status '(exit signal)))
+                       (setq settled t)
+                       (let* ((exit-status (process-exit-status process))
+                              (output-exists (file-exists-p output-file)))
+                         (let ((print-escape-newlines t))
+                           (agent-shell-math-renderer--append-process-log
+                            output-buffer
+                            (format "[%s] status=%s exit-status=%d event=%S"
+                                    stage status exit-status event)))
+                         (when (and (eq status 'exit)
+                                    (zerop exit-status)
+                                    (not output-exists))
+                           (agent-shell-math-renderer--append-process-log
+                            output-buffer
+                            (format "[%s] expected output missing: %S"
+                                    stage output-file)))
+                         (if (and (eq status 'exit)
+                                  (zerop exit-status)
+                                  output-exists)
+                             (run (cdr remaining))
+                           (funcall done nil)))))))
               (error
-               (with-current-buffer output-buffer
-                 (goto-char (point-max))
-                 (insert (format "%s failed to start: %s\n"
-                                 stage (error-message-string err))))
+               (agent-shell-math-renderer--append-process-log
+                output-buffer
+                (format "[%s] failed to start: %s"
+                        stage (error-message-string err)))
                (funcall done nil)))))))
     (run stages)))
 
