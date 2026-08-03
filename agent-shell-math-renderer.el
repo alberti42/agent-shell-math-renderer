@@ -779,18 +779,91 @@ agent-shell-markdown's `:block' positions."
                    (map-nested-elt sb '(:block :end))))
            source-blocks)))
 
+(defun agent-shell-math-renderer--release-inline-pending ()
+  "Lift inline-tail streaming protection left by the previous chunk.
+
+`--protect-inline-tail' freezes a still-open inline `\\(' (tagged
+`agent-shell-math-renderer--inline-pending') so agent-shell's escape
+pass can't unescape its backslash (`\\(' -> `(') before the closer
+streams in.  But `--style-inline' skips frozen text, so that
+protection has to be lifted before the inline pass re-scans, or a
+now-complete span would never render.  Removes the freeze and the
+pending tag over every pending region; `--protect-inline-tail'
+re-applies them if the span is still open after this chunk."
+  (let ((pos (point-min)))
+    (while (setq pos (text-property-any
+                      pos (point-max)
+                      'agent-shell-math-renderer--inline-pending t))
+      (let ((end (next-single-property-change
+                  pos 'agent-shell-math-renderer--inline-pending
+                  nil (point-max))))
+        (remove-text-properties
+         pos end
+         '(agent-shell-markdown-frozen nil
+           agent-shell-math-renderer--inline-pending nil))
+        (setq pos end)))))
+
+(defun agent-shell-math-renderer--protect-inline-tail (avoid-ranges)
+  "Freeze a still-open inline `\\(' on the buffer's last line; return its marker.
+
+An unclosed inline `\\(' whose `\\)' hasn't streamed in yet sits on the
+buffer's last line.  Left as ordinary text it is claimed by
+agent-shell's CommonMark escape pass (`\\(' -> `('), destroying the
+opener before the closer arrives on the next chunk (agent-shell
+0.66.1+).  Display math avoids this because `--style-blocks' freezes
+its open block; inline needs the same, but tagged
+`agent-shell-math-renderer--inline-pending' (and lifted by
+`--release-inline-pending' next chunk) because `--style-inline' skips
+frozen text.
+
+Freezes from the first still-open opener to `point-max' and returns a
+marker there (mirroring the display open-block watermark) so
+agent-shell holds the streaming frontier before the `\\(' and re-scans
+it next chunk.  An opener already frozen (rendered math), inside
+AVOID-RANGES, or followed by its `\\)' on the line is not a streaming
+tail; returns nil when none remains open."
+  (let ((open-re (regexp-quote agent-shell-math-renderer--inline-open))
+        (close-re (regexp-quote agent-shell-math-renderer--inline-close))
+        (case-fold-search nil))
+    (save-excursion
+      (let ((opener (catch 'found
+                      (goto-char (point-max))
+                      (goto-char (line-beginning-position))
+                      (while (re-search-forward open-re nil t)
+                        (let ((os (match-beginning 0))
+                              (oe (match-end 0)))
+                          (when (and (not (agent-shell-markdown-in-avoid-range-p
+                                           os oe avoid-ranges))
+                                     (not (get-text-property
+                                           os 'agent-shell-markdown-frozen))
+                                     (not (save-excursion
+                                            (goto-char oe)
+                                            (re-search-forward close-re nil t))))
+                            (throw 'found os))))
+                      nil)))
+        (when opener
+          (put-text-property opener (point-max) 'agent-shell-markdown-frozen t)
+          (put-text-property opener (point-max)
+                             'agent-shell-math-renderer--inline-pending t)
+          (copy-marker opener))))))
+
 (defun agent-shell-math-renderer--render-context (context &optional streaming)
   "Render math in CONTEXT.
 
 CONTEXT is the alist supplied by agent-shell's markdown renderer,
 or an equivalent alist built for a submitted prompt.  When
-STREAMING is non-nil, protect still-open display blocks and return
-a `:watermark' result for agent-shell."
+STREAMING is non-nil, protect still-open display blocks and inline
+spans and return a `:watermark' result for agent-shell."
   (let* ((source-blocks (map-elt context :source-blocks))
          (inline-code-ranges (map-elt context :inline-code-ranges))
          (source-ranges
           (agent-shell-math-renderer--source-ranges source-blocks))
-         (watermark nil))
+         (watermarks '()))
+    ;; Lift any inline-tail protection from the previous chunk first, so a
+    ;; span whose closer just arrived is re-detected by `--style-inline'
+    ;; below (which skips frozen text).
+    (when streaming
+      (agent-shell-math-renderer--release-inline-pending))
     (agent-shell-math-renderer--style-blocks :avoid-ranges source-ranges)
     (when streaming
       (let ((open-block (seq-find (lambda (b) (zerop (plist-get b :close)))
@@ -805,7 +878,7 @@ a `:watermark' result for agent-shell."
           ;; opener and the next chunk would never re-scan the block (it
           ;; stays frozen-but-unrendered).  A marker tracks those edits, so
           ;; the `min' in `--update-watermark' reads its live position.
-          (setq watermark (copy-marker (plist-get open-block :start)))
+          (push (copy-marker (plist-get open-block :start)) watermarks)
           (put-text-property (plist-get open-block :start)
                              (plist-get open-block :end)
                              'agent-shell-markdown-frozen t))))
@@ -817,7 +890,13 @@ a `:watermark' result for agent-shell."
                           source-ranges
                           (agent-shell-math-renderer--block-ranges source-ranges)
                           inline-code-ranges)))
-        (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)))
+        (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)
+        ;; Protect a still-open inline `\(' on the last line from agent-shell's
+        ;; escape pass (see `--protect-inline-tail'); hold the frontier there.
+        (when streaming
+          (when-let* ((wm (agent-shell-math-renderer--protect-inline-tail
+                           math-ranges)))
+            (push wm watermarks)))))
     ;; Fenced math (```math / ```latex / ```tex): replace the whole
     ;; block — backtick fences included — with the LaTeX body wrapped
     ;; in `\[...\]' display delimiters, then overlay the equation image
@@ -841,8 +920,14 @@ a `:watermark' result for agent-shell."
         ;; closing fence, so a trailing newline is folded in and kept out
         ;; of the frozen region (see `--rewrite-fenced-block').
         (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
-    (when watermark
-      (list (cons :watermark watermark)))))
+    ;; Hand agent-shell the earliest (leftmost) frontier so both a still-open
+    ;; display block and a still-open inline tail are re-scanned next chunk.
+    (when watermarks
+      (list (cons :watermark
+                  (car (sort watermarks
+                             (lambda (a b)
+                               (< (marker-position a)
+                                  (marker-position b))))))))))
 
 (defun agent-shell-math-renderer--render-hook (context)
   "Hook function for `agent-shell-markdown-render-functions'.

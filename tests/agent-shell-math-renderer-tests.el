@@ -161,15 +161,18 @@ $$ x $$
 (ert-deftest agent-shell-math-renderer-math-delimiters-disabled ()
   ;; An empty `agent-shell-math-renderer-delimiters' disables the
   ;; delimiter styles even with the master switch on: delimiters are
-  ;; plain text and inner markup is processed normally.
+  ;; plain text and inner markup is processed normally.  Unclaimed, the
+  ;; `\[' / `\]' are shown as `[' / `]' -- agent-shell 0.66.1+ unescapes
+  ;; backslash-escaped punctuation per CommonMark (only frozen math is
+  ;; spared, so this text isn't).
   (let ((agent-shell-math-renderer-enabled t)
         (agent-shell-math-renderer-delimiters '()))
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert
                      "x \\[ **y** \\] z"))
-                   '(("x \\[ " nil)
+                   '(("x [ " nil)
                      ("y" (agent-shell-markdown-bold))
-                     (" \\] z" nil))))))
+                     (" ] z" nil))))))
 
 (ert-deftest agent-shell-math-renderer-math-no-cross-delimiter-nesting ()
   ;; A `$$' inside a `\\[...\\]' block is body, not a delimiter: the
@@ -196,7 +199,8 @@ E=mc^2
 (ert-deftest agent-shell-math-renderer-math-blank-line-rejected ()
   ;; A blank line can't appear inside LaTeX display math, so a block
   ;; whose body would span one is rejected (left as plain text rather
-  ;; than mis-rendered as a single equation).
+  ;; than mis-rendered as a single equation).  Unclaimed, the `\[' / `\]'
+  ;; show unescaped as `[' / `]' (agent-shell 0.66.1+ CommonMark).
   (agent-shell-math-renderer-tests--enabled
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert
@@ -205,11 +209,11 @@ E=mc^2
 
 extra
 \\]"))
-                   '(("\\[
+                   '(("[
 E=mc^2
 
 extra
-\\]" nil))))))
+]" nil))))))
 
 (ert-deftest agent-shell-math-renderer-math-stray-opener-recovers-real-blocks ()
   ;; A stray line-start opener that never closes before a blank line is
@@ -222,7 +226,7 @@ extra
                      "\\[ stray opener
 
 \\[ E=mc^2 \\]"))
-                   '(("\\[ stray opener
+                   '(("[ stray opener
 
 " nil)
                      ("\\[ E=mc^2 \\]" (agent-shell-math-renderer)))))))
@@ -233,9 +237,9 @@ extra
   (agent-shell-math-renderer-tests--enabled
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "see \\[ **x** \\] here"))
-                   '(("see \\[ " nil)
+                   '(("see [ " nil)
                      ("x" (agent-shell-markdown-bold))
-                     (" \\] here" nil))))))
+                     (" ] here" nil))))))
 
 (ert-deftest agent-shell-math-renderer-math-non-flush-closer-rejected ()
   ;; A line-start opener whose closer sits mid-line (text follows on the
@@ -315,13 +319,15 @@ x = 1
 (ert-deftest agent-shell-math-renderer-math-master-switch-off ()
   ;; With the master switch off (the default), `\\[...\\]' is plain
   ;; text and its inner markup is processed normally (here `**x**'
-  ;; becomes bold) — math rendering is fully gated.
+  ;; becomes bold) — math rendering is fully gated.  The unclaimed
+  ;; `\[' / `\]' show unescaped as `[' / `]' (agent-shell 0.66.1+
+  ;; CommonMark backslash-unescaping).
   (let ((agent-shell-math-renderer-enabled nil))
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "before \\[ **x** \\] after"))
-                   '(("before \\[ " nil)
+                   '(("before [ " nil)
                      ("x" (agent-shell-markdown-bold))
-                     (" \\] after" nil))))))
+                     (" ] after" nil))))))
 
 (ert-deftest agent-shell-math-renderer-fenced-math-as-code-when-off ()
   ;; With the master switch off, a ```math fence is left as an ordinary
@@ -446,14 +452,16 @@ E=mc^2
   ;; The closer must be on the opener's line; a `\\(' whose `\\)' is on a
   ;; later line is not matched (left as plain text), which bounds the
   ;; single-line inline form.
+  ;; Unclaimed, the `\(' / `\)' show unescaped as `(' / `)'
+  ;; (agent-shell 0.66.1+ CommonMark backslash-unescaping).
   (agent-shell-math-renderer-tests--enabled
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "\\(
 x
 \\)"))
-                   '(("\\(
+                   '(("(
 x
-\\)" nil))))))
+)" nil))))))
 
 (ert-deftest agent-shell-math-renderer-inline-math-streaming-tail ()
   ;; An unclosed `\\(' on the buffer's last line is left raw (the closer
@@ -505,6 +513,28 @@ after text.
                                           rendered)
                        "T=T_0+\\frac{a}{b}"))))))
 
+(ert-deftest agent-shell-math-renderer-streaming-inline-across-chunks ()
+  ;; Regression: inline `\(...\)' whose opener and closer arrive in
+  ;; different streaming chunks must still render.  agent-shell 0.66.1+
+  ;; unescapes an unclaimed `\(' (`\(' -> `(') during its CommonMark
+  ;; escape pass, which would destroy the opener before the closer
+  ;; streams in.  `--protect-inline-tail' freezes the still-open opener
+  ;; each chunk (lifting it again next chunk via `--release-inline-pending')
+  ;; so the delimiter survives and the completed span renders.  Stream at
+  ;; several chunk sizes to hit the boundary that splits the span.
+  (agent-shell-math-renderer-tests--enabled
+    (dolist (step '(1 2 3 5 40 100))
+      (let ((rendered
+             (agent-shell-math-renderer-tests--stream
+              "text \\(E=mc^2\\) done" step)))
+        ;; The completed span renders (source metadata present) ...
+        (should (equal (get-text-property (string-match "E=mc" rendered)
+                                          'agent-shell-math-renderer-source
+                                          rendered)
+                       "E=mc^2"))
+        ;; ... and the raw LaTeX delimiters are kept (not unescaped away).
+        (should (string-match-p "\\\\(E=mc\\^2\\\\)" rendered))))))
+
 (ert-deftest agent-shell-math-renderer-inline-math-can-be-disabled ()
   ;; `agent-shell-math-renderer-render-inline' nil disables `\\(...\\)'
   ;; even with the master switch on: delimiters are plain and inner
@@ -513,19 +543,21 @@ after text.
         (agent-shell-math-renderer-render-inline nil))
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "a \\( **x** \\) b"))
-                   '(("a \\( " nil)
+                   '(("a ( " nil)
                      ("x" (agent-shell-markdown-bold))
-                     (" \\) b" nil))))))
+                     (" ) b" nil))))))
 
 (ert-deftest agent-shell-math-renderer-inline-math-master-switch-off ()
   ;; With the master switch off, inline `\\(...\\)' is plain text and
-  ;; inner markup is processed (here `**x**' becomes bold).
+  ;; inner markup is processed (here `**x**' becomes bold).  The
+  ;; unclaimed `\(' / `\)' show unescaped as `(' / `)' (agent-shell
+  ;; 0.66.1+ CommonMark backslash-unescaping).
   (let ((agent-shell-math-renderer-enabled nil))
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "a \\( **x** \\) b"))
-                   '(("a \\( " nil)
+                   '(("a ( " nil)
                      ("x" (agent-shell-markdown-bold))
-                     (" \\) b" nil))))))
+                     (" ) b" nil))))))
 
 (ert-deftest agent-shell-math-renderer-inline-math-tags-source-and-inline ()
   ;; Inline math stashes its source and the inline flag, while display
