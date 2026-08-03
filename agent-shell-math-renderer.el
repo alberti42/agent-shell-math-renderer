@@ -7,7 +7,7 @@
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.3.1
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.58.1") (latex-to-svg-backend "0.4.0"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.4.0"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -852,7 +852,17 @@ alist with `:source-blocks' (fenced-block descriptors) and
 `:inline-code-ranges' (marker ranges over inline `code' span
 bodies, used to keep `\\(...\\)' inside a code span literal).
 Returns an alist with `:watermark' when an unclosed delimiter
-needs streaming protection, nil otherwise."
+needs streaming protection, nil otherwise.
+
+Note: this hook is not invoked on agent-shell's single-line UI
+labels (e.g. a tool-command right-label).  agent-shell renders
+those with external render functions disabled -- see
+`agent-shell--render-markdown''s `external-renderers' argument
+(agent-shell 0.66.1+, xenodium/agent-shell#747).  That is why this
+hook needs no guard against a tool command whose `\\(...\\)' shell
+grouping would otherwise false-positive as math: agent-shell never
+hands us the label in the first place.  See \"Integration\" in the
+package's architecture notes for the full history."
   (when agent-shell-math-renderer-enabled
     (agent-shell-math-renderer--render-context context t)))
 
