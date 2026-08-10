@@ -6,7 +6,7 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.5.0
+;; Version: 0.6.0
 ;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.8.0"))
 ;; Keywords: tex, llm, math, education
 
@@ -143,24 +143,16 @@ collides with your prose."
                (seq-every-p (lambda (x) (memq x '(bracket dollar))) v)))
   :group 'agent-shell-math-renderer)
 
-(defcustom agent-shell-math-renderer-enabled nil
-  "Master switch for rendering display math in agent responses.
+(defvar agent-shell-math-renderer-mode)
+(defvar agent-shell-math-renderer-enabled)
 
-Nil (the default) disables math rendering entirely — delimiters
-and fenced math blocks are left as plain text / ordinary code
-blocks.  Set non-nil to opt in; what then gets recognized is
-controlled by `agent-shell-math-renderer-delimiters' (both
-`\\=\\[...\\]' and `$$...$$' on by default) and
-`agent-shell-math-renderer-fence-languages' (`math' / `latex' /
-`tex' fenced blocks, on by default).
-
-Checked by `agent-shell-math-renderer--render-hook', which
-agent-shell's markdown renderer calls via
-`agent-shell-markdown-render-functions'; when nil the hook is a
-no-op."
-  :type 'boolean
-  :safe #'booleanp
-  :group 'agent-shell-math-renderer)
+(defun agent-shell-math-renderer--active-p ()
+  "Return non-nil when math rendering should act in the current buffer.
+True when the buffer-local `agent-shell-math-renderer-mode' is on, or the
+obsolete `agent-shell-math-renderer-enabled' switch is set."
+  (or agent-shell-math-renderer-mode
+      (with-suppressed-warnings ((obsolete agent-shell-math-renderer-enabled))
+        agent-shell-math-renderer-enabled)))
 
 (defcustom agent-shell-math-renderer-fence-languages '("math" "latex" "tex")
   "Fenced-code-block languages rendered as display math.
@@ -802,7 +794,7 @@ otherwise the actual comparison and refresh are deferred to the next
 idle moment, by which point a freshly applied theme / text scale is
 fully in effect (and rapid repeat triggers collapse, since the first
 refresh updates the recorded appearance)."
-  (when agent-shell-math-renderer-enabled
+  (when agent-shell-math-renderer--present
     (run-at-time 0 nil #'agent-shell-math-renderer--refresh-if-changed)))
 
 (defun agent-shell-math-renderer--refresh-if-changed ()
@@ -813,31 +805,38 @@ never re-renders the others; each refreshes lazily when it is itself
 displayed.  The appearance signature folds in both colors and the
 buffer font height (see `latex-to-svg-backend-appearance'), so a font-size
 change is picked up just like a color change."
-  (when (and agent-shell-math-renderer-enabled
-             agent-shell-math-renderer--present
+  (when (and agent-shell-math-renderer--present
              (not (equal (latex-to-svg-backend-appearance
                           (agent-shell-math-renderer--font-height (current-buffer)))
                          agent-shell-math-renderer--rendered-appearance)))
     (agent-shell-math-renderer-refresh (current-buffer))))
 
-;; Re-render lazily, when an equation buffer is next displayed, rather than
-;; eagerly on every event that might recolor the default face.
-;; `window-buffer-change-functions' is the workhorse: whatever changed the
-;; colors (a theme, a macOS/Linux system light/dark toggle on any platform,
-;; a graphical client attaching to a daemon after a TTY render), we notice
-;; the next time the buffer is shown in a window and repaint if stale.
-;; `enable-theme-functions' (Emacs 29+, cross-platform) covers the one case
-;; display alone misses: a theme enabled while the buffer stays visible and
-;; untouched.  `text-scale-mode-hook' covers the other: a buffer-local zoom
-;; (`text-scale-adjust', C-x C-+/-) changes the font height without a
-;; display or theme event, so without this hook equations only re-size on
-;; the next buffer switch.  All three go through the same appearance-changed
-;; check (colors + font height), so they're cheap no-ops when nothing
-;; changed (or math rendering is off).
-(add-hook 'window-buffer-change-functions
-          #'agent-shell-math-renderer--maybe-refresh)
-(add-hook 'enable-theme-functions #'agent-shell-math-renderer--maybe-refresh)
-(add-hook 'text-scale-mode-hook #'agent-shell-math-renderer--maybe-refresh)
+;; Appearance-change refresh.  `agent-shell-math-renderer-mode' installs the
+;; per-buffer triggers buffer-locally: `window-buffer-change-functions' for
+;; redisplay and `text-scale-mode-hook' for a buffer-local zoom.  Theme
+;; switching is a global event with no per-buffer hook, so it is left for the
+;; user to install if wanted (see `agent-shell-math-renderer-on-theme-change').
+;; All go through the same cheap appearance-changed check (colors + font
+;; height), so they no-op unless something actually changed.
+
+;;;###autoload
+(defun agent-shell-math-renderer-on-theme-change (&rest _)
+  "Refresh every present buffer whose appearance changed after a theme switch.
+
+Add this to `enable-theme-functions' for instant re-tinting when you
+switch themes, mirroring how the mode itself is enabled:
+
+  (add-hook \\='enable-theme-functions
+            #\\='agent-shell-math-renderer-on-theme-change)
+
+Buffers otherwise re-tint on their next redisplay, so this is optional."
+  (run-at-time
+   0 nil
+   (lambda ()
+     (dolist (buf (buffer-list))
+       (when (buffer-local-value 'agent-shell-math-renderer--present buf)
+         (with-current-buffer buf
+           (agent-shell-math-renderer--refresh-if-changed)))))))
 
 ;;; Hook integration with agent-shell-markdown
 
@@ -912,7 +911,7 @@ frozen text.
 
 Freezes from the first still-open opener to `point-max' and returns a
 marker there (mirroring the display open-block watermark) so
-agent-shell holds the streaming frontier before the `\\(' and re-scans
+`agent-shell' holds the streaming frontier before the `\\(' and re-scans
 it next chunk.  An opener already frozen (rendered math), inside
 AVOID-RANGES, or followed by its `\\)' on the line is not a streaming
 tail; returns nil when none remains open."
@@ -922,7 +921,7 @@ tail; returns nil when none remains open."
     (save-excursion
       (let ((opener (catch 'found
                       (goto-char (point-max))
-                      (goto-char (line-beginning-position))
+                      (beginning-of-line)
                       (while (re-search-forward open-re nil t)
                         (let ((os (match-beginning 0))
                               (oe (match-end 0)))
@@ -944,10 +943,10 @@ tail; returns nil when none remains open."
 (defun agent-shell-math-renderer--render-context (context &optional streaming)
   "Render math in CONTEXT.
 
-CONTEXT is the alist supplied by agent-shell's markdown renderer,
+CONTEXT is the alist supplied by the `agent-shell' markdown renderer,
 or an equivalent alist built for a submitted prompt.  When
 STREAMING is non-nil, protect still-open display blocks and inline
-spans and return a `:watermark' result for agent-shell."
+spans and return a `:watermark' result for `agent-shell'."
   (let* ((source-blocks (map-elt context :source-blocks))
          (inline-code-ranges (map-elt context :inline-code-ranges))
          (source-ranges
@@ -1034,19 +1033,16 @@ Returns an alist with `:watermark' when an unclosed delimiter
 needs streaming protection, nil otherwise.
 
 Note: this hook is not invoked on agent-shell's single-line UI
-labels (e.g. a tool-command right-label).  agent-shell renders
+labels (e.g. a tool-command right-label).  `agent-shell' renders
 those with external render functions disabled -- see the
 `external-renderers' argument of `agent-shell--render-markdown'
-in agent-shell 0.66.1+ (xenodium/agent-shell#747).  That is why this
+in `agent-shell' 0.66.1+ (xenodium PR #747).  That is why this
 hook needs no guard against a tool command whose `\\(...\\)' shell
-grouping would otherwise false-positive as math: agent-shell never
+grouping would otherwise false-positive as math: `agent-shell' never
 hands us the label in the first place.  See \"Integration\" in the
 package's architecture notes for the full history."
-  (when agent-shell-math-renderer-enabled
+  (when (agent-shell-math-renderer--active-p)
     (agent-shell-math-renderer--render-context context t)))
-
-(add-hook 'agent-shell-markdown-render-functions
-          #'agent-shell-math-renderer--render-hook)
 
 ;;; Submitted-prompt rendering
 
@@ -1069,7 +1065,7 @@ package's architecture notes for the full history."
       (when (buffer-live-p buffer)
         (with-current-buffer buffer
           (when (and agent-shell-math-renderer-render-submitted-prompts
-                     agent-shell-math-renderer-enabled)
+                     (agent-shell-math-renderer--active-p))
             (when-let* ((start (marker-position start-marker))
                         (end (marker-position end-marker))
                         ((< start end)))
@@ -1089,7 +1085,7 @@ package's architecture notes for the full history."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (when (and agent-shell-math-renderer-render-submitted-prompts
-                 agent-shell-math-renderer-enabled)
+                 (agent-shell-math-renderer--active-p))
         (when-let* ((region (agent-shell-math-renderer--submitted-prompt-region)))
           (run-at-time 0 nil
                        #'agent-shell-math-renderer--render-submitted-prompt
@@ -1100,7 +1096,7 @@ package's architecture notes for the full history."
   (agent-shell-math-renderer--schedule-submitted-prompt (current-buffer)))
 
 (defun agent-shell-math-renderer--maybe-subscribe-prompts ()
-  "Subscribe current agent-shell buffer to submitted-prompt rendering."
+  "Subscribe current `agent-shell' buffer to submitted-prompt rendering."
   (unless agent-shell-math-renderer--prompt-subscription
     (setq-local agent-shell-math-renderer--prompt-subscription
                 (agent-shell-subscribe-to
@@ -1109,8 +1105,76 @@ package's architecture notes for the full history."
                  :on-event
                  #'agent-shell-math-renderer--on-input-submitted))))
 
-(add-hook 'agent-shell-mode-hook
-          #'agent-shell-math-renderer--maybe-subscribe-prompts)
+(defun agent-shell-math-renderer--unsubscribe-prompts ()
+  "Unsubscribe the current buffer from submitted-prompt rendering."
+  (when agent-shell-math-renderer--prompt-subscription
+    (agent-shell-unsubscribe
+     :subscription agent-shell-math-renderer--prompt-subscription)
+    (setq-local agent-shell-math-renderer--prompt-subscription nil)))
+
+;;;###autoload
+(define-minor-mode agent-shell-math-renderer-mode
+  "Render LaTeX math in this `agent-shell' buffer's markdown output.
+
+Enable it per buffer from `agent-shell-mode-hook', e.g.
+
+  (add-hook \\='agent-shell-mode-hook #\\='agent-shell-math-renderer-mode)
+
+While on, this buffer's streamed (and, per
+`agent-shell-math-renderer-render-submitted-prompts', submitted) markdown
+has its display and inline LaTeX rendered as SVG images.  The mode
+installs its buffer-local render and appearance hooks on activation and
+removes them on deactivation, so merely loading this package has no
+effect until the mode is turned on.  What gets recognized is controlled
+by `agent-shell-math-renderer-delimiters' and
+`agent-shell-math-renderer-fence-languages'."
+  :lighter nil
+  (if agent-shell-math-renderer-mode
+      (progn
+        (add-hook 'agent-shell-markdown-render-functions
+                  #'agent-shell-math-renderer--render-hook nil t)
+        (add-hook 'window-buffer-change-functions
+                  #'agent-shell-math-renderer--maybe-refresh nil t)
+        (add-hook 'text-scale-mode-hook
+                  #'agent-shell-math-renderer--maybe-refresh nil t)
+        (agent-shell-math-renderer--maybe-subscribe-prompts))
+    (remove-hook 'agent-shell-markdown-render-functions
+                 #'agent-shell-math-renderer--render-hook t)
+    (remove-hook 'window-buffer-change-functions
+                 #'agent-shell-math-renderer--maybe-refresh t)
+    (remove-hook 'text-scale-mode-hook
+                 #'agent-shell-math-renderer--maybe-refresh t)
+    (agent-shell-math-renderer--unsubscribe-prompts)))
+
+(defcustom agent-shell-math-renderer-enabled nil
+  "Obsolete master switch for math rendering in all `agent-shell' buffers.
+
+Prefer enabling the buffer-local `agent-shell-math-renderer-mode', e.g.
+
+  (add-hook \\='agent-shell-mode-hook #\\='agent-shell-math-renderer-mode)
+
+For backward compatibility, setting this non-nil (through Customize or
+`setopt') installs an `agent-shell-mode-hook' that turns the mode on in
+every `agent-shell' buffer, and enables it in existing ones; setting it
+nil removes that hook and disables the mode.  A plain `setq' does not
+take effect — use `setopt' or the hook above."
+  :type 'boolean
+  :safe #'booleanp
+  :initialize #'custom-initialize-default
+  :set (lambda (symbol value)
+         (set-default symbol value)
+         (if value
+             (add-hook 'agent-shell-mode-hook
+                       #'agent-shell-math-renderer-mode)
+           (remove-hook 'agent-shell-mode-hook
+                        #'agent-shell-math-renderer-mode))
+         (dolist (buf (buffer-list))
+           (with-current-buffer buf
+             (when (derived-mode-p 'agent-shell-mode)
+               (agent-shell-math-renderer-mode (if value 1 -1))))))
+  :group 'agent-shell-math-renderer)
+(make-obsolete-variable 'agent-shell-math-renderer-enabled
+                        'agent-shell-math-renderer-mode "0.6.0")
 
 (provide 'agent-shell-math-renderer)
 

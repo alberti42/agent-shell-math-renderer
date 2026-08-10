@@ -5,6 +5,45 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-10
+
+### Added
+
+- `agent-shell-math-renderer-mode`: a buffer-local minor mode that is now the
+  way to turn rendering on. Enable it per agent-shell buffer, e.g.
+
+      (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
+
+- `agent-shell-math-renderer-on-theme-change`: a function you can add to
+  `enable-theme-functions` for instant re-tinting when you switch themes:
+
+      (add-hook 'enable-theme-functions
+                #'agent-shell-math-renderer-on-theme-change)
+
+### Changed
+
+- The package no longer adds any hooks merely by being loaded. The minor mode
+  installs its render hook and its redisplay/zoom refresh hooks
+  **buffer-locally** on activation (and removes them on deactivation). The
+  package installs no global hooks: theme re-tinting is opt-in via the function
+  above (equations otherwise re-tint on their next redisplay).
+
+### Breaking changes
+
+- **Enable via the minor mode, not the variable.** Rendering used to turn on
+  by setting `agent-shell-math-renderer-enabled` to non-nil; now enable
+  `agent-shell-math-renderer-mode` (typically from `agent-shell-mode-hook`, as
+  shown above).
+- `agent-shell-math-renderer-enabled` is **obsolete** but still works for
+  backward compatibility: setting it non-nil via Customize or `setopt`
+  installs an `agent-shell-mode-hook` that enables the mode everywhere. A
+  plain `setq` no longer takes effect — migrate to the hook, or use `setopt`.
+
+### Deprecated
+
+- `agent-shell-math-renderer-enabled` (see above); prefer
+  `agent-shell-math-renderer-mode`.
+
 ## [0.5.0] - 2026-08-10
 
 ### Changed
@@ -122,6 +161,7 @@ Initial release.
   `agent-shell-markdown-render-functions` hook and public range/cache helpers;
   require agent-shell 0.57.4 for `:inline-code-ranges`.
 
+[0.6.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.3.0...v0.3.1

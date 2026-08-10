@@ -91,8 +91,7 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 (use-package agent-shell-math-renderer
   :vc (:url "https://github.com/alberti42/agent-shell-math-renderer" :rev :newest)
   :after (agent-shell latex-to-svg-backend)
-  :config
-  (setq agent-shell-math-renderer-enabled t))
+  :hook (agent-shell-mode . agent-shell-math-renderer-mode))
 ```
 
 ### `use-package` + `straight`
@@ -107,8 +106,7 @@ The built-in way — no `straight`, no manual `package-vc-install`:
              :type git :host github
              :repo "alberti42/agent-shell-math-renderer")
   :after (agent-shell latex-to-svg-backend)
-  :config
-  (setq agent-shell-math-renderer-enabled t))
+  :hook (agent-shell-mode . agent-shell-math-renderer-mode))
 ```
 
 ### `elpaca`
@@ -117,6 +115,7 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 (elpaca (latex-to-svg-backend :host github :repo "alberti42/latex-to-svg-backend"))
 (elpaca (agent-shell-math-renderer
          :host github :repo "alberti42/agent-shell-math-renderer"))
+(add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
 ```
 
 ### `package-vc-install` (Emacs 29+)
@@ -128,15 +127,25 @@ first:
 (package-vc-install "https://github.com/alberti42/latex-to-svg-backend")
 (package-vc-install "https://github.com/alberti42/agent-shell-math-renderer")
 (require 'agent-shell-math-renderer)
-(setq agent-shell-math-renderer-enabled t)
+(add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
 ```
 
 ## Usage
 
-Rendering is gated by a master switch, off by default:
+Rendering is provided by a buffer-local minor mode,
+`agent-shell-math-renderer-mode`.  Turn it on in agent-shell buffers:
 
 ```elisp
-(setq agent-shell-math-renderer-enabled t)
+(add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
+```
+
+For previews to re-tint the instant you switch themes, also add the provided
+function to `enable-theme-functions` yourself (theme switching is a global
+event, so the package installs nothing global on your behalf; equations
+otherwise re-tint on their next redisplay):
+
+```elisp
+(add-hook 'enable-theme-functions #'agent-shell-math-renderer-on-theme-change)
 ```
 
 With it on, math in the agent's responses renders automatically as it streams.
@@ -149,20 +158,22 @@ To also render math in submitted prompts, enable:
 (setq agent-shell-math-renderer-render-submitted-prompts t)
 ```
 
-This option also requires `agent-shell-math-renderer-enabled`.  Submitted
+This option also requires `agent-shell-math-renderer-mode`.  Submitted
 prompts use the same delimiter, inline-math, and fenced-math settings as agent
 responses.
 
 ### Enabling per project
 
-Prefer to render math only in some projects? Leave the global switch off and
-enable it per directory. `agent-shell-math-renderer-enabled` is marked safe, so
-a `.dir-locals.el` sets it without a confirmation prompt:
+Prefer to render math only in some projects? Leave the `agent-shell-mode-hook`
+above out of your config and enable the mode per directory instead. Enabling a
+minor mode from `.dir-locals.el` uses an `eval` entry:
 
 ```elisp
 ;; .dir-locals.el at a project root
-((agent-shell-mode . ((agent-shell-math-renderer-enabled . t))))
+((agent-shell-mode . ((eval . (agent-shell-math-renderer-mode 1)))))
 ```
+
+Emacs will ask once to confirm the `eval` (or mark it safe).
 
 The same works for the other side-effect-free options (`-delimiters`,
 `-fence-languages`, `-render-inline`, `-inline-rescale`, `-display-rescale`,
@@ -217,8 +228,10 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `agent-shell-math-renderer-enabled` | `nil` | Master switch. Off → the renderer is a no-op. |
-| `agent-shell-math-renderer-render-submitted-prompts` | `nil` | Also render math in submitted user prompts when the master switch is on. |
+| `agent-shell-math-renderer-mode` | `nil` | Buffer-local minor mode that turns rendering on; enable from `agent-shell-mode-hook`. |
+| `agent-shell-math-renderer-on-theme-change` | — | Function to add to `enable-theme-functions` for instant re-tint on a theme switch (optional). |
+| `agent-shell-math-renderer-enabled` | `nil` | **Obsolete** compatibility switch (use the mode). Non-nil via Customize/`setopt` enables the mode in all agent-shell buffers. |
+| `agent-shell-math-renderer-render-submitted-prompts` | `nil` | Also render math in submitted user prompts when the mode is on. |
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math" "latex" "tex")` | Fenced-code languages rendered as display math. `nil` leaves them as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |

@@ -40,6 +40,14 @@
 (require 'agent-shell-markdown)
 (require 'agent-shell-math-renderer)
 
+;; The renderer now installs its render hook buffer-locally via
+;; `agent-shell-math-renderer-mode'.  These tests drive the pipeline through
+;; `agent-shell-markdown-convert' in throwaway buffers (no mode), so install
+;; the hook globally for the suite; it still no-ops unless a test opts in by
+;; binding `agent-shell-math-renderer-enabled' (checked via `--active-p').
+(add-hook 'agent-shell-markdown-render-functions
+          #'agent-shell-math-renderer--render-hook)
+
 (defmacro agent-shell-math-renderer-tests--enabled (&rest body)
   "Evaluate BODY with math rendering enabled.
 `agent-shell-math-renderer-enabled' (the master switch) defaults to
@@ -615,11 +623,21 @@ after text.
 
 (ert-deftest agent-shell-math-renderer-text-scale-wired-to-refresh ()
   ;; A buffer zoom (`text-scale-adjust') fires `text-scale-mode-hook' but
-  ;; neither display nor theme hooks, so the lazy refresh must subscribe to
-  ;; it directly — otherwise equations only re-size on the next buffer
-  ;; switch.  Verify the hook is wired at load time.
-  (should (memq 'agent-shell-math-renderer--maybe-refresh
-                (default-value 'text-scale-mode-hook))))
+  ;; neither display nor theme hooks, so the mode subscribes to it
+  ;; buffer-locally — otherwise equations only re-size on the next buffer
+  ;; switch.  Verify `agent-shell-math-renderer-mode' wires it on enable and
+  ;; unwires it on disable (subscription stubbed so a plain buffer suffices).
+  (cl-letf (((symbol-function 'agent-shell-subscribe-to)
+             (lambda (&rest _) 'token))
+            ((symbol-function 'agent-shell-unsubscribe)
+             (lambda (&rest _) nil)))
+    (with-temp-buffer
+      (agent-shell-math-renderer-mode 1)
+      (should (memq 'agent-shell-math-renderer--maybe-refresh
+                    text-scale-mode-hook))
+      (agent-shell-math-renderer-mode -1)
+      (should-not (memq 'agent-shell-math-renderer--maybe-refresh
+                        text-scale-mode-hook)))))
 
 ;;; Submitted-prompt rendering
 
