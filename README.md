@@ -260,6 +260,14 @@ non-graphical display (behind the image on a graphical one).
   time. Because the cache is content-addressed, it is shared with any other
   `latex-to-svg-backend` front-end (e.g. an Org previewer) — the same equation compiles
   once across all of them.
+- **Sizing** tracks the buffer font: the package measures `default-font-height`
+  against the buffer's *actual* display frame and passes it to the backend, so
+  the equation matches the surrounding text regardless of which frame is
+  selected (e.g. an async compile finishing while a TTY/daemon frame is
+  current). If the buffer is shown in no window when an equation is ready, the
+  SVG is compiled and cached but not yet sized; it is drawn the moment the
+  buffer is displayed (the same display hook that re-tints on theme changes),
+  from cache, with no recompile.
 - The raw LaTeX is kept under the image via a `display` property, so
   selection/copy/save give back the source.
 

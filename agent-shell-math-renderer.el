@@ -6,8 +6,8 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.4.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.7.0"))
+;; Version: 0.5.0
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.8.0"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -657,6 +657,24 @@ is preserved."
               (when wrap-prefix
                 (put-text-property s e 'wrap-prefix wrap-prefix)))))))))
 
+(defun agent-shell-math-renderer--font-height (&optional buffer)
+  "Return BUFFER's font pixel height in a graphical frame showing it, or nil.
+
+Measured against the actual window/frame that displays BUFFER, so the
+size is right even when the selected frame is a TTY/daemon frame (an
+async compile callback firing while a terminal frame is current), and
+without searching or touching unrelated frames.  Uses `with-selected-frame'
+\(a temporary, non-raising, non-focus-stealing selection), so it never
+makes a parked child frame appear.  Returns nil when BUFFER is shown in
+no graphical window; the backend then defers sizing to display time."
+  (let ((buffer (or buffer (current-buffer))))
+    (when-let* ((win (get-buffer-window buffer t))
+                (frame (window-frame win))
+                ((display-graphic-p frame)))
+      (with-selected-frame frame
+        (with-current-buffer buffer
+          (ignore-errors (default-font-height)))))))
+
 (defun agent-shell-math-renderer--render (buffer start end latex &optional inline)
   "Render LATEX over BUFFER's START..END as an equation image.
 
@@ -680,14 +698,15 @@ The tint, an optional box color, and its padding are overridden by
 `agent-shell-math-renderer-foreground-color' / `-background-color' /
 `-background-padding' (via `:color' / `:background' / `:padding'),
 all nil by default (follow the buffer foreground / transparent /
-cropped to the ink)."
+cropped to the ink).  The buffer font height is measured against
+BUFFER's actual display frame (`agent-shell-math-renderer--font-height')
+and passed as `:font-height', so sizing does not depend on which
+frame is selected; when BUFFER is shown nowhere it is nil and the
+backend defers sizing until the buffer is displayed (the display hook
+then re-renders)."
   (when (latex-to-svg-backend-available-p)
-    ;; Record the appearance (colors + font height) this render is for,
-    ;; so a later theme / frame / font change can detect the difference
-    ;; and re-render (a color change re-tints; it no longer recompiles).
-    (setq agent-shell-math-renderer--rendered-appearance
-          (latex-to-svg-backend-appearance))
-    (let* ((doc (if inline
+    (let* ((font-height (agent-shell-math-renderer--font-height buffer))
+           (doc (if inline
                     (format "$%s$" latex)
                   (format "$\\displaystyle %s$" latex)))
            (rescale (if inline
@@ -697,7 +716,14 @@ cropped to the ink)."
            (background agent-shell-math-renderer-background-color)
            (padding agent-shell-math-renderer-background-padding)
            (image (latex-to-svg-backend doc :rescale-by rescale :color color
-                                        :background background :padding padding)))
+                                        :background background :padding padding
+                                        :font-height font-height)))
+      ;; Record the appearance (colors + font height) this render is for,
+      ;; so a later theme / frame / font change can detect the difference
+      ;; and re-render (a color change re-tints; it no longer recompiles).
+      ;; Uses the same measured height so the signature matches the render.
+      (setq agent-shell-math-renderer--rendered-appearance
+            (latex-to-svg-backend-appearance font-height))
       (if image
           (agent-shell-math-renderer--overlay-image buffer start end image)
         ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
@@ -707,15 +733,19 @@ cropped to the ink)."
           (latex-to-svg-backend
            doc
            :rescale-by rescale :color color
-           :background background :padding padding
+           :background background :padding padding :font-height font-height
            :callback
            (lambda ()
              (when (buffer-live-p buffer)
                (with-current-buffer buffer
+                 ;; Re-measure: the buffer may be displayed now even if it
+                 ;; was not when the compile was scheduled.
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
-                  (latex-to-svg-backend doc :rescale-by rescale :color color
-                                        :background background :padding padding)))))))))))
+                  (latex-to-svg-backend
+                   doc :rescale-by rescale :color color
+                   :background background :padding padding
+                   :font-height (agent-shell-math-renderer--font-height buffer))))))))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.
@@ -785,7 +815,8 @@ buffer font height (see `latex-to-svg-backend-appearance'), so a font-size
 change is picked up just like a color change."
   (when (and agent-shell-math-renderer-enabled
              agent-shell-math-renderer--present
-             (not (equal (latex-to-svg-backend-appearance)
+             (not (equal (latex-to-svg-backend-appearance
+                          (agent-shell-math-renderer--font-height (current-buffer)))
                          agent-shell-math-renderer--rendered-appearance)))
     (agent-shell-math-renderer-refresh (current-buffer))))
 
