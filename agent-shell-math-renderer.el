@@ -7,7 +7,7 @@
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.3.1
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.4.0"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.6.0"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -213,7 +213,8 @@ after changing it, run `agent-shell-math-renderer-refresh' to apply."
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-display-rescale 1.0
-  "Size multiplier for display math previews (`\\=\\[...\\]', `$$...$$', fences).
+  "Size multiplier for display math previews.
+Applies to `\\=\\[...\\]', `$$...$$', and fenced math blocks.
 Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by' — e.g. set to 1.1 for display equations a
 touch larger than inline.  Re-scales from cache (no recompile); after
@@ -804,7 +805,7 @@ re-applies them if the span is still open after this chunk."
         (setq pos end)))))
 
 (defun agent-shell-math-renderer--protect-inline-tail (avoid-ranges)
-  "Freeze a still-open inline `\\(' on the buffer's last line; return its marker.
+  "Freeze a still-open inline `\\(' on the last line; return its marker.
 
 An unclosed inline `\\(' whose `\\)' hasn't streamed in yet sits on the
 buffer's last line.  Left as ordinary text it is claimed by
@@ -941,9 +942,9 @@ needs streaming protection, nil otherwise.
 
 Note: this hook is not invoked on agent-shell's single-line UI
 labels (e.g. a tool-command right-label).  agent-shell renders
-those with external render functions disabled -- see
-`agent-shell--render-markdown''s `external-renderers' argument
-(agent-shell 0.66.1+, xenodium/agent-shell#747).  That is why this
+those with external render functions disabled -- see the
+`external-renderers' argument of `agent-shell--render-markdown'
+in agent-shell 0.66.1+ (xenodium/agent-shell#747).  That is why this
 hook needs no guard against a tool command whose `\\(...\\)' shell
 grouping would otherwise false-positive as math: agent-shell never
 hands us the label in the first place.  See \"Integration\" in the
