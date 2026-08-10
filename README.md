@@ -219,6 +219,9 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math" "latex" "tex")` | Fenced-code languages rendered as display math. `nil` leaves them as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
+| `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache — run `agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-background-padding` | `nil` | Padding (pt) between the equation and the box edge; only visible with a background color. `nil`/`0` crops to the ink. Re-renders from cache — run `agent-shell-math-renderer-refresh` after changing. |
 
 The **rendering-engine** options (equation size, toolchain, preamble, caching,
 placeholder / non-graphic behaviour) live in the

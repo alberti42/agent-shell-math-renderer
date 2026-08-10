@@ -6,8 +6,8 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.3.1
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.6.0"))
+;; Version: 0.4.0
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.7.0"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -221,6 +221,57 @@ touch larger than inline.  Re-scales from cache (no recompile); after
 changing it, run `agent-shell-math-renderer-refresh' to apply."
   :type 'number
   :safe #'numberp
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-foreground-color nil
+  "Color equations are tinted with, or nil to follow the buffer.
+
+When nil (the default) equations are tinted with the buffer
+foreground and track the theme (see
+`latex-to-svg-backend-foreground-color').  Set to a color — a
+`#rrggbb' string or any name `color-name-to-rgb' understands
+\(e.g. \"black\", \"#1a1a1a\") — to tint every equation with that
+fixed color regardless of theme.
+
+Passed to `latex-to-svg-backend' as `:color'; it re-tints from cache
+\(no LaTeX recompile).  After changing it, run
+`agent-shell-math-renderer-refresh' to apply."
+  :type '(choice (const :tag "Follow buffer foreground" nil)
+                 (color :tag "Fixed color"))
+  :safe (lambda (v) (or (null v) (stringp v)))
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-background-color nil
+  "Box color painted behind equations, or nil for transparent.
+
+When nil (the default) equations are transparent and blend into
+the buffer.  Set to a color — a `#rrggbb' string or any name
+`color-name-to-rgb' understands (e.g. \"gray97\", \"#f7f7f7\") — to
+paint that color behind every equation.  A very light gray reads
+best; keep it subtle so it doesn't fight the buffer background.
+
+Passed to `latex-to-svg-backend' as `:background'; it applies from
+cache (no LaTeX recompile).  After changing it, run
+`agent-shell-math-renderer-refresh' to apply."
+  :type '(choice (const :tag "Transparent" nil)
+                 (color :tag "Box color"))
+  :safe (lambda (v) (or (null v) (stringp v)))
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-background-padding nil
+  "Padding (in pt) around equations inside the background box.
+
+Has a visible effect only when
+`agent-shell-math-renderer-background-color' is set: it grows the
+colored box beyond the equation ink on all sides, so the ink is
+not flush against the box edge.  A number of pt (e.g. 3) that
+scales with the equation; nil or 0 crops the box to the ink.
+
+Passed to `latex-to-svg-backend' as `:padding'; it applies from
+cache (no LaTeX recompile).  After changing it, run
+`agent-shell-math-renderer-refresh' to apply."
+  :type '(choice (const :tag "None" nil) number)
+  :safe (lambda (v) (or (null v) (numberp v)))
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-render-submitted-prompts nil
@@ -624,7 +675,12 @@ display) and pass that.  Color and size are not baked in —
 `latex-to-svg-backend' tints the color-independent SVG to the buffer
 foreground and scales it to the buffer font at display time, the
 latter by `agent-shell-math-renderer-inline-rescale' /
-`-display-rescale' (via `:rescale-by') for INLINE / display math."
+`-display-rescale' (via `:rescale-by') for INLINE / display math.
+The tint, an optional box color, and its padding are overridden by
+`agent-shell-math-renderer-foreground-color' / `-background-color' /
+`-background-padding' (via `:color' / `:background' / `:padding'),
+all nil by default (follow the buffer foreground / transparent /
+cropped to the ink)."
   (when (latex-to-svg-backend-available-p)
     ;; Record the appearance (colors + font height) this render is for,
     ;; so a later theme / frame / font change can detect the difference
@@ -637,7 +693,11 @@ latter by `agent-shell-math-renderer-inline-rescale' /
            (rescale (if inline
                         agent-shell-math-renderer-inline-rescale
                       agent-shell-math-renderer-display-rescale))
-           (image (latex-to-svg-backend doc :rescale-by rescale)))
+           (color agent-shell-math-renderer-foreground-color)
+           (background agent-shell-math-renderer-background-color)
+           (padding agent-shell-math-renderer-background-padding)
+           (image (latex-to-svg-backend doc :rescale-by rescale :color color
+                                        :background background :padding padding)))
       (if image
           (agent-shell-math-renderer--overlay-image buffer start end image)
         ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
@@ -646,14 +706,16 @@ latter by `agent-shell-math-renderer-inline-rescale' /
               (e (copy-marker end)))
           (latex-to-svg-backend
            doc
-           :rescale-by rescale
+           :rescale-by rescale :color color
+           :background background :padding padding
            :callback
            (lambda ()
              (when (buffer-live-p buffer)
                (with-current-buffer buffer
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
-                  (latex-to-svg-backend doc :rescale-by rescale)))))))))))
+                  (latex-to-svg-backend doc :rescale-by rescale :color color
+                                        :background background :padding padding)))))))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.
