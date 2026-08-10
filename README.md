@@ -91,7 +91,12 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 (use-package agent-shell-math-renderer
   :vc (:url "https://github.com/alberti42/agent-shell-math-renderer" :rev :newest)
   :after (agent-shell latex-to-svg-backend)
-  :hook (agent-shell-mode . agent-shell-math-renderer-mode))
+  :hook (agent-shell-mode . agent-shell-math-renderer-mode)
+  ;; Optional: re-tint equations the instant you switch themes.
+  ;; See "Usage" below; omit if you never change themes at runtime.
+  :config
+  (add-hook 'enable-theme-functions
+            #'agent-shell-math-renderer-on-theme-change))
 ```
 
 ### `use-package` + `straight`
@@ -106,7 +111,12 @@ The built-in way — no `straight`, no manual `package-vc-install`:
              :type git :host github
              :repo "alberti42/agent-shell-math-renderer")
   :after (agent-shell latex-to-svg-backend)
-  :hook (agent-shell-mode . agent-shell-math-renderer-mode))
+  :hook (agent-shell-mode . agent-shell-math-renderer-mode)
+  ;; Optional: re-tint equations the instant you switch themes.
+  ;; See "Usage" below; omit if you never change themes at runtime.
+  :config
+  (add-hook 'enable-theme-functions
+            #'agent-shell-math-renderer-on-theme-change))
 ```
 
 ### `elpaca`
@@ -116,6 +126,8 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 (elpaca (agent-shell-math-renderer
          :host github :repo "alberti42/agent-shell-math-renderer"))
 (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
+;; Optional: instant re-tint on theme switch (see "Usage" below).
+(add-hook 'enable-theme-functions #'agent-shell-math-renderer-on-theme-change)
 ```
 
 ### `package-vc-install` (Emacs 29+)
@@ -128,6 +140,8 @@ first:
 (package-vc-install "https://github.com/alberti42/agent-shell-math-renderer")
 (require 'agent-shell-math-renderer)
 (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
+;; Optional: instant re-tint on theme switch (see "Usage" below).
+(add-hook 'enable-theme-functions #'agent-shell-math-renderer-on-theme-change)
 ```
 
 ## Usage
