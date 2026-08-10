@@ -52,9 +52,11 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 ## Requirements
 
 - **Emacs 29.1+**
-- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.57.4 or newer —
-  the release that exposes `:inline-code-ranges` to render hooks)
-- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** — the
+- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.66.1 or newer —
+  the release with the backslash-escape pass and the right-label render-function
+  suppression the hook relies on)
+- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.8.0
+  or newer — the
   rendering engine (equation compile, caching, display-time tint/scale) is
   factored out into this standalone library. All typesetting knobs (LaTeX /
   dvisvgm programs, preamble, cache directory, font scale, placeholder /
@@ -163,7 +165,8 @@ a `.dir-locals.el` sets it without a confirmation prompt:
 ```
 
 The same works for the other side-effect-free options (`-delimiters`,
-`-fence-languages`, `-render-inline`, and the engine's `latex-to-svg-backend-font-scale`).
+`-fence-languages`, `-render-inline`, `-inline-rescale`, `-display-rescale`,
+the color/box options, and the engine's `latex-to-svg-backend-font-scale`).
 The engine's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
 `-dvisvgm-program`, `-preamble`, `-appended-preamble`, `-cache-directory`) are
 **not** marked safe — a `.dir-locals.el` lives inside the repo, and those feed a
@@ -219,6 +222,8 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math" "latex" "tex")` | Fenced-code languages rendered as display math. `nil` leaves them as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
+| `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the engine's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache — run `agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-background-padding` | `nil` | Padding (pt) between the equation and the box edge; only visible with a background color. `nil`/`0` crops to the ink. Re-renders from cache — run `agent-shell-math-renderer-refresh` after changing. |
