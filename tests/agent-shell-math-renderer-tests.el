@@ -1,5 +1,12 @@
 ;;; agent-shell-math-renderer-tests.el --- Tests for agent-shell-math-renderer -*- lexical-binding: t; -*-
 
+;; Copyright (C) 2026 Andrea Alberti
+
+;; Author: Andrea Alberti <a.alberti82@gmail.com>
+;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
+;; Assisted-by: Claude:claude-opus-4-8
+;; URL: https://github.com/alberti42/agent-shell-math-renderer
+
 ;;; Commentary:
 ;;
 ;; Run via:
