@@ -439,6 +439,20 @@ returns ((1 . 11))."
             (cons (plist-get block :start) (plist-get block :end)))
           (agent-shell-math-renderer--blocks avoid-ranges)))
 
+(defun agent-shell-math-renderer--re-search-unescaped-forward (regexp &optional bound)
+  "Search for REGEXP before BOUND, skipping escaped matches."
+  (let (found)
+    (while (and (not found) (re-search-forward regexp bound t))
+      (let ((backslashes 0))
+        (save-excursion
+          (goto-char (match-beginning 0))
+          (while (eq (char-before) ?\\)
+            (setq backslashes (1+ backslashes))
+            (backward-char)))
+        (when (zerop (% backslashes 2))
+          (setq found t))))
+    found))
+
 (defun agent-shell-math-renderer--inline-spans (&optional avoid-ranges)
   "Return inline-math spans `\\(...\\)' in the current buffer.
 
@@ -469,7 +483,8 @@ For example, with buffer \"see \\=\\(E=mc^2\\=\\) here\", returns
       (goto-char (point-min))
       (let ((open-re (regexp-quote open))
             (close-re (regexp-quote close)))
-        (while (re-search-forward open-re nil t)
+        (while (agent-shell-math-renderer--re-search-unescaped-forward
+                open-re)
           (let* ((open-start (match-beginning 0))
                  (open-end (match-end 0))
                  (avoid (agent-shell-markdown-in-avoid-range-p
@@ -483,7 +498,8 @@ For example, with buffer \"see \\=\\(E=mc^2\\=\\) here\", returns
                 (save-excursion
                   (goto-char open-end)
                   (while (and (not close-end)
-                              (re-search-forward close-re eol t))
+                              (agent-shell-math-renderer--re-search-unescaped-forward
+                               close-re eol))
                     (let ((in (agent-shell-markdown-in-avoid-range-p
                                (match-beginning 0) (match-end 0) avoid-ranges)))
                       (if in
@@ -934,7 +950,8 @@ tail; returns nil when none remains open."
       (let ((opener (catch 'found
                       (goto-char (point-max))
                       (beginning-of-line)
-                      (while (re-search-forward open-re nil t)
+                      (while (agent-shell-math-renderer--re-search-unescaped-forward
+                              open-re)
                         (let ((os (match-beginning 0))
                               (oe (match-end 0)))
                           (when (and (not (agent-shell-markdown-in-avoid-range-p
@@ -943,7 +960,8 @@ tail; returns nil when none remains open."
                                            os 'agent-shell-markdown-frozen))
                                      (not (save-excursion
                                             (goto-char oe)
-                                            (re-search-forward close-re nil t))))
+                                            (agent-shell-math-renderer--re-search-unescaped-forward
+                                             close-re))))
                             (throw 'found os))))
                       nil)))
         (when opener

@@ -419,6 +419,33 @@ E=mc^2
                      (" and " nil)
                      ("\\(b\\)" (agent-shell-math-renderer)))))))
 
+(ert-deftest agent-shell-math-renderer-escaped-inline-delimiters-untouched ()
+  (agent-shell-math-renderer-tests--enabled
+    (let ((rendered
+           (agent-shell-markdown-convert
+            "literal \\\\(t=0\\\\), math \\(x\\)")))
+      (should-not
+       (get-text-property (string-match "t=0" rendered)
+                          'agent-shell-math-renderer-source rendered))
+      (should
+       (equal (get-text-property (string-match "x" rendered)
+                                 'agent-shell-math-renderer-source rendered)
+              "x")))))
+
+(ert-deftest agent-shell-math-renderer-escaped-inline-closer-skipped ()
+  (with-temp-buffer
+    (insert "\\(a\\\\)b\\)")
+    (let* ((span (car (agent-shell-math-renderer--inline-spans)))
+           (start (+ (plist-get span :start) (plist-get span :open)))
+           (end (- (plist-get span :end) (plist-get span :close))))
+      (should (equal (buffer-substring-no-properties start end)
+                     "a\\\\)b")))))
+
+(ert-deftest agent-shell-math-renderer-escaped-inline-tail-not-protected ()
+  (with-temp-buffer
+    (insert "\\\\(t=0")
+    (should-not (agent-shell-math-renderer--protect-inline-tail nil))))
+
 (ert-deftest agent-shell-math-renderer-inline-math-in-inline-code-untouched ()
   ;; A `\\(...\\)' inside an inline-code span is literal code, not math:
   ;; it keeps the inline-code face and gets no math face.
