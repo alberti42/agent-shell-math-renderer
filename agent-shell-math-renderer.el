@@ -199,7 +199,8 @@ can be added later if agents prove to need it."
   "Size multiplier for inline math previews (`\\(...\\)').
 Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by'.  Re-scales from cache (no recompile);
-after changing it, run `agent-shell-math-renderer-refresh' to apply."
+after changing it, run `agent-shell-math-renderer-refresh' to apply (with a
+prefix argument to apply in every buffer at once)."
   :type 'number
   :safe #'numberp
   :group 'agent-shell-math-renderer)
@@ -210,7 +211,8 @@ Applies to `\\=\\[...\\]', `$$...$$', and fenced math blocks.
 Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by' — e.g. set to 1.1 for display equations a
 touch larger than inline.  Re-scales from cache (no recompile); after
-changing it, run `agent-shell-math-renderer-refresh' to apply."
+changing it, run `agent-shell-math-renderer-refresh' to apply (with a
+prefix argument to apply in every buffer at once)."
   :type 'number
   :safe #'numberp
   :group 'agent-shell-math-renderer)
@@ -227,7 +229,8 @@ fixed color regardless of theme.
 
 Passed to `latex-to-svg-backend' as `:color'; it re-tints from cache
 \(no LaTeX recompile).  After changing it, run
-`agent-shell-math-renderer-refresh' to apply."
+`agent-shell-math-renderer-refresh' to apply (with a prefix argument
+to apply in every buffer at once)."
   :type '(choice (const :tag "Follow buffer foreground" nil)
                  (color :tag "Fixed color"))
   :safe (lambda (v) (or (null v) (stringp v)))
@@ -244,7 +247,8 @@ best; keep it subtle so it doesn't fight the buffer background.
 
 Passed to `latex-to-svg-backend' as `:background'; it applies from
 cache (no LaTeX recompile).  After changing it, run
-`agent-shell-math-renderer-refresh' to apply."
+`agent-shell-math-renderer-refresh' to apply (with a prefix argument
+to apply in every buffer at once)."
   :type '(choice (const :tag "Transparent" nil)
                  (color :tag "Box color"))
   :safe (lambda (v) (or (null v) (stringp v)))
@@ -261,7 +265,8 @@ scales with the equation; nil or 0 crops the box to the ink.
 
 Passed to `latex-to-svg-backend' as `:padding'; it applies from
 cache (no LaTeX recompile).  After changing it, run
-`agent-shell-math-renderer-refresh' to apply."
+`agent-shell-math-renderer-refresh' to apply (with a prefix argument
+to apply in every buffer at once)."
   :type '(choice (const :tag "None" nil) number)
   :safe (lambda (v) (or (null v) (numberp v)))
   :group 'agent-shell-math-renderer)
@@ -762,12 +767,14 @@ is reused from cache)."
               (agent-shell-math-renderer--render buffer pos end latex inline)
               (setq pos end))))))))
 
-(defun agent-shell-math-renderer-refresh (&optional buffer)
+(defun agent-shell-math-renderer-refresh (&optional buffer all)
   "Re-render displayed equations for the current colors and font.
-With BUFFER, re-render only that buffer; otherwise (the interactive
-default) every buffer that has rendered equations.  Call after a
-theme, appearance, or font-size change so equation images pick up
-the new colors and size.
+Re-render BUFFER, defaulting to the current buffer.  With ALL non-nil
+\(interactively, a prefix argument), re-render every buffer that has
+rendered equations instead — for a global change no appearance check
+can see, such as setting `agent-shell-math-renderer-foreground-color'.
+Call after a theme, appearance, or font-size change so equation images
+pick up the new colors and size.
 
 Images are rebuilt at the current font scale from the on-disk SVGs —
 cheap, no LaTeX recompile unless the color also changed.  The
@@ -776,13 +783,13 @@ new size just adds entries and a sibling buffer's warm images survive
 — no clear needed.  Each re-rendered buffer records its new appearance
 via `agent-shell-math-renderer--render', so unchanged buffers stay
 fast and untouched buffers refresh lazily when next displayed."
-  (interactive)
-  (dolist (buf (if buffer
-                   (list buffer)
-                 (seq-filter
-                  (lambda (b)
-                    (buffer-local-value 'agent-shell-math-renderer--present b))
-                  (buffer-list))))
+  (interactive (list nil current-prefix-arg))
+  (dolist (buf (if all
+                   (seq-filter
+                    (lambda (b)
+                      (buffer-local-value 'agent-shell-math-renderer--present b))
+                    (buffer-list))
+                 (list (or buffer (current-buffer)))))
     (agent-shell-math-renderer--refresh-buffer buf)))
 
 (defun agent-shell-math-renderer--maybe-refresh (&rest _)
@@ -795,7 +802,12 @@ idle moment, by which point a freshly applied theme / text scale is
 fully in effect (and rapid repeat triggers collapse, since the first
 refresh updates the recorded appearance)."
   (when agent-shell-math-renderer--present
-    (run-at-time 0 nil #'agent-shell-math-renderer--refresh-if-changed)))
+    (let ((buffer (current-buffer)))
+      (run-at-time 0 nil
+                   (lambda ()
+                     (when (buffer-live-p buffer)
+                       (with-current-buffer buffer
+                         (agent-shell-math-renderer--refresh-if-changed))))))))
 
 (defun agent-shell-math-renderer--refresh-if-changed ()
   "Re-render the current buffer's equations if its appearance changed.

@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `agent-shell-math-renderer-refresh` now re-renders **only one buffer** by
+  default (the current one, or BUFFER when called from Lisp), matching the
+  sibling `latex-to-svg` front-end. Pass a prefix argument
+  (`C-u M-x agent-shell-math-renderer-refresh`) — or non-nil ALL from Lisp —
+  for the old sweep over every buffer with rendered equations, which is what
+  you want after changing a global setting such as
+  `agent-shell-math-renderer-foreground-color`. Theme switches are already
+  covered by `agent-shell-math-renderer-on-theme-change`, which sweeps all
+  buffers but repaints only those whose appearance actually changed.
+
+### Fixed
+
+- The deferred appearance check (`window-buffer-change-functions` /
+  `text-scale-mode-hook`) now captures the triggering buffer instead of
+  running in whatever buffer happens to be current when the timer fires, so
+  a burst of window changes can no longer check (and refresh) the wrong
+  buffer.
+
 ## [0.6.0] - 2026-08-10
 
 ### Added
@@ -161,6 +183,7 @@ Initial release.
   `agent-shell-markdown-render-functions` hook and public range/cache helpers;
   require agent-shell 0.57.4 for `:inline-code-ranges`.
 
+[Unreleased]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.3.1...v0.4.0

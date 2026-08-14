@@ -230,10 +230,13 @@ automatically:
 
 ### Command
 
-- `M-x agent-shell-math-renderer-refresh` — re-render displayed equations for
-  the current theme/appearance and font size. Equations already re-render
-  lazily on theme, buffer-display, and zoom changes; this forces it now (and
-  after a pure global font-size change).
+- `M-x agent-shell-math-renderer-refresh` — re-render the current buffer's
+  equations for the current theme/appearance and font size. Equations already
+  re-render lazily on theme, buffer-display, and zoom changes; this forces it
+  now (and after a pure global font-size change). With a prefix argument
+  (`C-u M-x agent-shell-math-renderer-refresh`) it re-renders **every** buffer
+  with rendered equations — useful after changing a global setting such as
+  `agent-shell-math-renderer-foreground-color`, which no lazy check detects.
 
 ## Customization
 
@@ -249,11 +252,11 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math" "latex" "tex")` | Fenced-code languages rendered as display math. `nil` leaves them as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
-| `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the engine's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `agent-shell-math-renderer-refresh` after changing. |
-| `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `agent-shell-math-renderer-refresh` after changing. |
-| `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `agent-shell-math-renderer-refresh` after changing. |
-| `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache — run `agent-shell-math-renderer-refresh` after changing. |
-| `agent-shell-math-renderer-background-padding` | `nil` | Padding (pt) between the equation and the box edge; only visible with a background color. `nil`/`0` crops to the ink. Re-renders from cache — run `agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the engine's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-background-padding` | `nil` | Padding (pt) between the equation and the box edge; only visible with a background color. `nil`/`0` crops to the ink. Re-renders from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 
 The **rendering-engine** options (equation size, toolchain, preamble, caching,
 placeholder / non-graphic behaviour) live in the
