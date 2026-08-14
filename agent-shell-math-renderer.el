@@ -482,6 +482,11 @@ fenced code, display math, or inline code) is ignored, and a
 candidate whose body would overlap an avoid-range is rejected, so
 returned spans never overlap AVOID-RANGES or each other.
 
+An escaped delimiter is not a delimiter: `\\\\(' is a literal
+backslash plus `(' and opens nothing, and a `\\\\)' inside a span is
+body rather than its end (see
+`agent-shell-math-renderer--re-search-unescaped-forward').
+
 For example, with buffer \"see \\=\\(E=mc^2\\=\\) here\", returns
 \((:start 5 :end 15 :open 2 :close 2))."
   (let ((spans '())
@@ -501,7 +506,10 @@ For example, with buffer \"see \\=\\(E=mc^2\\=\\) here\", returns
             (if avoid
                 (goto-char (cdr avoid))
               ;; Look for the closer on this line only; skip a closer
-              ;; that sits inside an avoid-range (it is protected text).
+              ;; that sits inside an avoid-range (it is protected text)
+              ;; or is escaped.  Markdown escaping is applied uniformly,
+              ;; so an escaped `\\)' stays body: it reaches LaTeX as
+              ;; `\\\\)', a line break followed by a paren.
               (let ((eol (line-end-position))
                     (close-end nil))
                 (save-excursion
@@ -950,8 +958,8 @@ Freezes from the first still-open opener to `point-max' and returns a
 marker there (mirroring the display open-block watermark) so
 `agent-shell' holds the streaming frontier before the `\\(' and re-scans
 it next chunk.  An opener already frozen (rendered math), inside
-AVOID-RANGES, or followed by its `\\)' on the line is not a streaming
-tail; returns nil when none remains open."
+AVOID-RANGES, escaped (`\\\\('), or followed by its `\\)' on the line is
+not a streaming tail; returns nil when none remains open."
   (let ((open-re (regexp-quote agent-shell-math-renderer--inline-open))
         (close-re (regexp-quote agent-shell-math-renderer--inline-close))
         (case-fold-search nil))
