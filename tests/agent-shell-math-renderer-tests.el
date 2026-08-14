@@ -420,6 +420,12 @@ E=mc^2
                      ("\\(b\\)" (agent-shell-math-renderer)))))))
 
 (ert-deftest agent-shell-math-renderer-escaped-inline-delimiters-untouched ()
+  ;; Regression: an escaped opener `\\\\(' is a literal backslash plus `(',
+  ;; markdown for showing `\\(' rather than opening math.  The scan used to
+  ;; match from the SECOND backslash, claiming `\\(t=0\\)' as math with the
+  ;; broken body `t=0\\'.  It must stay text (agent-shell's escape pass
+  ;; later unescapes it to `\\(t=0\\)'), while a real `\\(x\\)' alongside it
+  ;; still renders.
   (agent-shell-math-renderer-tests--enabled
     (let ((rendered
            (agent-shell-markdown-convert
@@ -427,12 +433,19 @@ E=mc^2
       (should-not
        (get-text-property (string-match "t=0" rendered)
                           'agent-shell-math-renderer-source rendered))
+      ;; The literal survives as visible text, unescaped exactly once.
+      (should (string-prefix-p "literal \\(t=0\\), "
+                               (substring-no-properties rendered)))
       (should
        (equal (get-text-property (string-match "x" rendered)
                                  'agent-shell-math-renderer-source rendered)
               "x")))))
 
 (ert-deftest agent-shell-math-renderer-escaped-inline-closer-skipped ()
+  ;; The same rule applies to the closer: an escaped `\\\\)' is body, not the
+  ;; end of the span, so the search continues to the real `\\)'.  (Markdown
+  ;; escaping is applied uniformly, so the body reaches LaTeX as `a\\\\)b' —
+  ;; a line break followed by a paren.)
   (with-temp-buffer
     (insert "\\(a\\\\)b\\)")
     (let* ((span (car (agent-shell-math-renderer--inline-spans)))
@@ -442,6 +455,10 @@ E=mc^2
                      "a\\\\)b")))))
 
 (ert-deftest agent-shell-math-renderer-escaped-inline-tail-not-protected ()
+  ;; An escaped opener is no opener, so there is no still-streaming inline
+  ;; tail to freeze: `--protect-inline-tail' must return nil rather than
+  ;; freeze the rest of the buffer (which would also block the escape pass
+  ;; from ever unescaping the literal).
   (with-temp-buffer
     (insert "\\\\(t=0")
     (should-not (agent-shell-math-renderer--protect-inline-tail nil))))
