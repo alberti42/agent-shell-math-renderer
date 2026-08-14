@@ -440,17 +440,26 @@ returns ((1 . 11))."
           (agent-shell-math-renderer--blocks avoid-ranges)))
 
 (defun agent-shell-math-renderer--re-search-unescaped-forward (regexp &optional bound)
-  "Search for REGEXP before BOUND, skipping escaped matches."
+  "Search forward for REGEXP before BOUND, skipping escaped matches.
+
+A match preceded by an odd number of backslashes is escaped and is
+skipped, the search resuming after it: `\\\\(' is a literal backslash
+plus `(', not an inline-math opener.  An even count (including none)
+is a real match.
+
+Point and the match data are left as `re-search-forward' leaves them;
+failure returns nil rather than signalling.
+
+Escapes are still intact at this point.  We cannot rely on agent-shell
+since it resolves them in `--encode-escapes', which only runs after the
+render functions."
   (let (found)
     (while (and (not found) (re-search-forward regexp bound t))
-      (let ((backslashes 0))
-        (save-excursion
-          (goto-char (match-beginning 0))
-          (while (eq (char-before) ?\\)
-            (setq backslashes (1+ backslashes))
-            (backward-char)))
-        (when (zerop (% backslashes 2))
-          (setq found t))))
+      (setq found (zerop (% (save-excursion
+                              (goto-char (match-beginning 0))
+                              (- (point) (progn (skip-chars-backward "\\\\")
+                                                (point))))
+                            2))))
     found))
 
 (defun agent-shell-math-renderer--inline-spans (&optional avoid-ranges)
@@ -921,7 +930,7 @@ re-applies them if the span is still open after this chunk."
         (remove-text-properties
          pos end
          '(agent-shell-markdown-frozen nil
-           agent-shell-math-renderer--inline-pending nil))
+                                       agent-shell-math-renderer--inline-pending nil))
         (setq pos end)))))
 
 (defun agent-shell-math-renderer--protect-inline-tail (avoid-ranges)
