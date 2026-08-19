@@ -6,7 +6,7 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.7.1
+;; Version: 0.8.0
 ;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.8.0"))
 ;; Keywords: tex, llm, math, education
 
@@ -859,22 +859,34 @@ change is picked up just like a color change."
 ;; Appearance-change refresh.  `agent-shell-math-renderer-mode' installs the
 ;; per-buffer triggers buffer-locally: `window-buffer-change-functions' for
 ;; redisplay and `text-scale-mode-hook' for a buffer-local zoom.  Theme
-;; switching is a global event with no per-buffer hook, so it is left for the
-;; user to install if wanted (see `agent-shell-math-renderer-on-theme-change').
+;; switching and a frame font change are global events with no per-buffer
+;; hook, so they are left for the user to install if wanted (one handler
+;; for both: `agent-shell-math-renderer-on-appearance-change').
 ;; All go through the same cheap appearance-changed check (colors + font
 ;; height), so they no-op unless something actually changed.
 
 ;;;###autoload
-(defun agent-shell-math-renderer-on-theme-change (&rest _)
-  "Refresh every present buffer whose appearance changed after a theme switch.
+(defun agent-shell-math-renderer-on-appearance-change (&rest _)
+  "Refresh every present buffer whose appearance changed.
 
-Add this to `enable-theme-functions' for instant re-tinting when you
-switch themes, mirroring how the mode itself is enabled:
+The mode tracks per-buffer changes itself (redisplay and buffer-local
+zoom), but a theme switch and a *frame* font change are global events
+with no per-buffer hook, so nothing is installed on your behalf.  For
+rendered math to follow them immediately, add this one function to both
+global hooks, mirroring how the mode itself is enabled:
 
   (add-hook \\='enable-theme-functions
-            #\\='agent-shell-math-renderer-on-theme-change)
+            #\\='agent-shell-math-renderer-on-appearance-change)
+  (add-hook \\='after-setting-font-hook
+            #\\='agent-shell-math-renderer-on-appearance-change)
 
-Buffers otherwise re-tint on their next redisplay, so this is optional."
+The second covers `set-frame-font', `doom/increase-font-size' and
+`doom-big-font-mode'.  Both are optional: equations otherwise re-tint
+and rescale on their next redisplay.
+
+Each buffer is appearance-checked individually (colors + measured font
+height), so buffers on a frame the change did not touch cost nothing,
+and nothing is recompiled \=-- images are re-fetched from the cache."
   (run-at-time
    0 nil
    (lambda ()
@@ -882,6 +894,10 @@ Buffers otherwise re-tint on their next redisplay, so this is optional."
        (when (buffer-local-value 'agent-shell-math-renderer--present buf)
          (with-current-buffer buf
            (agent-shell-math-renderer--refresh-if-changed)))))))
+
+;;;###autoload
+(define-obsolete-function-alias 'agent-shell-math-renderer-on-theme-change
+  #'agent-shell-math-renderer-on-appearance-change "0.8.0")
 
 ;;; Hook integration with agent-shell-markdown
 

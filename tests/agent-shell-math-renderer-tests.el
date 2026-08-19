@@ -690,6 +690,41 @@ after text.
       (should-not (memq 'agent-shell-math-renderer--maybe-refresh
                         text-scale-mode-hook)))))
 
+(ert-deftest agent-shell-math-renderer-on-appearance-change-sweeps-present-buffers ()
+  ;; A *frame* font change fires neither `text-scale-mode-hook' nor the
+  ;; display hooks, and is global: the opt-in handler sweeps every present
+  ;; buffer, appearance-checking each one.
+  (let ((refreshed nil))
+    (with-temp-buffer
+      (setq agent-shell-math-renderer--present t)
+      (cl-letf (((symbol-function 'agent-shell-math-renderer--refresh-if-changed)
+                 (lambda () (push (current-buffer) refreshed))))
+        (agent-shell-math-renderer-on-appearance-change)
+        (sit-for 0.1))
+      (should (memq (current-buffer) refreshed)))
+    ;; Not present -> not visited.
+    (setq refreshed nil)
+    (with-temp-buffer
+      (setq agent-shell-math-renderer--present nil)
+      (cl-letf (((symbol-function 'agent-shell-math-renderer--refresh-if-changed)
+                 (lambda () (push (current-buffer) refreshed))))
+        (agent-shell-math-renderer-on-appearance-change)
+        (sit-for 0.1))
+      (should-not (memq (current-buffer) refreshed)))))
+
+(ert-deftest agent-shell-math-renderer-installs-no-global-hooks ()
+  ;; Policy: theme / frame-font tracking is opt-in; loading the package or
+  ;; enabling the mode must never touch a global hook.
+  (cl-letf (((symbol-function 'agent-shell-subscribe-to) (lambda (&rest _) 'token))
+            ((symbol-function 'agent-shell-unsubscribe) (lambda (&rest _) nil)))
+    (with-temp-buffer
+      (agent-shell-math-renderer-mode 1)
+      (should-not (memq 'agent-shell-math-renderer-on-appearance-change
+                        (default-value 'after-setting-font-hook)))
+      (should-not (memq 'agent-shell-math-renderer-on-appearance-change
+                        (default-value 'enable-theme-functions)))
+      (agent-shell-math-renderer-mode -1))))
+
 ;;; Submitted-prompt rendering
 
 (ert-deftest agent-shell-math-renderer-submitted-prompt-region-copies-markers ()

@@ -92,11 +92,14 @@ The built-in way — no `straight`, no manual `package-vc-install`:
   :vc (:url "https://github.com/alberti42/agent-shell-math-renderer" :rev :newest)
   :after (agent-shell latex-to-svg-backend)
   :hook (agent-shell-mode . agent-shell-math-renderer-mode)
-  ;; Optional: re-tint equations the instant you switch themes.
-  ;; See "Usage" below; omit if you never change themes at runtime.
+  ;; Optional: re-tint equations the instant you switch themes, and
+  ;; rescale them when the frame font changes.  See "Usage" below; omit
+  ;; if you never change themes or font sizes at runtime.
   :config
   (add-hook 'enable-theme-functions
-            #'agent-shell-math-renderer-on-theme-change))
+            #'agent-shell-math-renderer-on-appearance-change)
+  (add-hook 'after-setting-font-hook
+            #'agent-shell-math-renderer-on-appearance-change))
 ```
 
 ### `use-package` + `straight`
@@ -112,11 +115,14 @@ The built-in way — no `straight`, no manual `package-vc-install`:
              :repo "alberti42/agent-shell-math-renderer")
   :after (agent-shell latex-to-svg-backend)
   :hook (agent-shell-mode . agent-shell-math-renderer-mode)
-  ;; Optional: re-tint equations the instant you switch themes.
-  ;; See "Usage" below; omit if you never change themes at runtime.
+  ;; Optional: re-tint equations the instant you switch themes, and
+  ;; rescale them when the frame font changes.  See "Usage" below; omit
+  ;; if you never change themes or font sizes at runtime.
   :config
   (add-hook 'enable-theme-functions
-            #'agent-shell-math-renderer-on-theme-change))
+            #'agent-shell-math-renderer-on-appearance-change)
+  (add-hook 'after-setting-font-hook
+            #'agent-shell-math-renderer-on-appearance-change))
 ```
 
 ### `elpaca`
@@ -126,8 +132,10 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 (elpaca (agent-shell-math-renderer
          :host github :repo "alberti42/agent-shell-math-renderer"))
 (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
-;; Optional: instant re-tint on theme switch (see "Usage" below).
-(add-hook 'enable-theme-functions #'agent-shell-math-renderer-on-theme-change)
+;; Optional: instant re-tint on theme switch, instant rescale on a frame
+;; font change (see "Usage" below).
+(add-hook 'enable-theme-functions  #'agent-shell-math-renderer-on-appearance-change)
+(add-hook 'after-setting-font-hook #'agent-shell-math-renderer-on-appearance-change)
 ```
 
 ### `package-vc-install` (Emacs 29+)
@@ -140,8 +148,10 @@ first:
 (package-vc-install "https://github.com/alberti42/agent-shell-math-renderer")
 (require 'agent-shell-math-renderer)
 (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
-;; Optional: instant re-tint on theme switch (see "Usage" below).
-(add-hook 'enable-theme-functions #'agent-shell-math-renderer-on-theme-change)
+;; Optional: instant re-tint on theme switch, instant rescale on a frame
+;; font change (see "Usage" below).
+(add-hook 'enable-theme-functions  #'agent-shell-math-renderer-on-appearance-change)
+(add-hook 'after-setting-font-hook #'agent-shell-math-renderer-on-appearance-change)
 ```
 
 ## Usage
@@ -153,14 +163,20 @@ Rendering is provided by a buffer-local minor mode,
 (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
 ```
 
-For previews to re-tint the instant you switch themes, also add the provided
-function to `enable-theme-functions` yourself (theme switching is a global
-event, so the package installs nothing global on your behalf; equations
-otherwise re-tint on their next redisplay):
+For previews to re-tint the instant you switch themes, and to rescale when the
+*frame* font changes (`set-frame-font`, `doom/increase-font-size`,
+`doom-big-font-mode`), also add the provided handler —
+`agent-shell-math-renderer-on-appearance-change`, one function for both hooks —
+yourself (both are global events, so the package installs nothing global on your
+behalf; equations otherwise re-tint / rescale on their next redisplay):
 
 ```elisp
-(add-hook 'enable-theme-functions #'agent-shell-math-renderer-on-theme-change)
+(add-hook 'enable-theme-functions  #'agent-shell-math-renderer-on-appearance-change)
+(add-hook 'after-setting-font-hook #'agent-shell-math-renderer-on-appearance-change)
 ```
+
+Buffer-local zoom (`text-scale-adjust`) is tracked by the mode itself and needs
+no hook.
 
 With it on, math in the agent's responses renders automatically as it streams.
 The text renders immediately and the image pops in when the (asynchronous)
@@ -246,7 +262,7 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agent-shell-math-renderer-mode` | `nil` | Buffer-local minor mode that turns rendering on; enable from `agent-shell-mode-hook`. |
-| `agent-shell-math-renderer-on-theme-change` | — | Function to add to `enable-theme-functions` for instant re-tint on a theme switch (optional). |
+| `agent-shell-math-renderer-on-appearance-change` | — | Function to add to `enable-theme-functions` and `after-setting-font-hook` for instant re-tint / rescale on a theme or frame-font change (optional). |
 | `agent-shell-math-renderer-enabled` | `nil` | **Obsolete** compatibility switch (use the mode). Non-nil via Customize/`setopt` enables the mode in all agent-shell buffers. |
 | `agent-shell-math-renderer-render-submitted-prompts` | `nil` | Also render math in submitted user prompts when the mode is on. |
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |

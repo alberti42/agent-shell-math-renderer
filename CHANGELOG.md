@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-19
+
+### Added
+
+- Rendered math now follows a **frame** font change (`set-frame-font`,
+  `doom/increase-font-size`, `doom-big-font-mode`, …): add the handler to
+  `after-setting-font-hook`. `text-scale-mode-hook`, which the mode installs
+  itself, only covers buffer-local zoom, so equations previously rescaled only
+  on their next redisplay. As with the theme hook, nothing is installed on
+  your behalf.
+
+### Changed
+
+- One handler for both global appearance hooks:
+  `agent-shell-math-renderer-on-appearance-change`. Theme switch and frame
+  font change need the exact same work (an appearance-checked sweep of the
+  present buffers), so there is one function to add to both hooks:
+
+  ```elisp
+  (add-hook 'enable-theme-functions
+            #'agent-shell-math-renderer-on-appearance-change)
+  (add-hook 'after-setting-font-hook
+            #'agent-shell-math-renderer-on-appearance-change)
+  ```
+
+  Mirrors `latex-to-svg-frontend` 0.14.0.
+
+### Deprecated
+
+- `agent-shell-math-renderer-on-theme-change` is now an obsolete alias of
+  `agent-shell-math-renderer-on-appearance-change`. Existing configurations
+  keep working; update them at your convenience.
+
 ## [0.7.1] - 2026-08-15
 
 ### Fixed
@@ -198,7 +231,8 @@ Initial release.
   `agent-shell-markdown-render-functions` hook and public range/cache helpers;
   require agent-shell 0.57.4 for `:inline-code-ranges`.
 
-[Unreleased]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.5.0...v0.6.0
