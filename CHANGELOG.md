@@ -38,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (setopt agent-shell-math-renderer-fence-languages '("math" "latex" "tex"))
   ```
 
+### Fixed
+
+- **A blank line before a ```` ```math ```` block no longer disappears.**
+  agent-shell-markdown's block range starts on the newline of the blank line
+  *preceding* the opening fence, and the whole range was being taken as the
+  math region — so the equation image's `display` property covered that
+  newline and the gap between the equation and the paragraph above it closed
+  up. (Before 0.9.0 the same off-by-one deleted the blank line outright, since
+  the block range was what got rewritten.) The math region now starts at the
+  fence itself.
+
 ## [0.8.0] - 2026-08-19
 
 ### Added

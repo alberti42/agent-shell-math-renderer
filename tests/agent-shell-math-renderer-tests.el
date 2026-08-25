@@ -335,6 +335,24 @@ E=mc^2
                      ("
 after" nil))))))
 
+(ert-deftest agent-shell-math-renderer-fenced-math-keeps-preceding-blank-line ()
+  ;; agent-shell-markdown's `:block :start' sits on the newline of the
+  ;; blank line *before* the opening fence, so taking the block range as
+  ;; given would put that blank line under the image's `display' property
+  ;; and visibly close the gap between the equation and the paragraph
+  ;; above it.  The math run must start at the fence itself.
+  (agent-shell-math-renderer-tests--enabled
+    (should (equal (agent-shell-markdown--deconstruct
+                    (agent-shell-markdown-convert "text
+
+```math
+E=mc^2
+```"))
+                   '(("text\n\n" nil)
+                     ("```math
+E=mc^2
+```" (agent-shell-math-renderer)))))))
+
 (ert-deftest agent-shell-math-renderer-fenced-math-copies-as-markdown ()
   ;; The rendered region round-trips: because the fence is kept in the
   ;; buffer rather than rewritten, `agent-shell-copy-as-markdown' (via the

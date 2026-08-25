@@ -925,9 +925,13 @@ overlaid on the whole block via
 the region yields the agent\'s own ```math fence and
 `agent-shell-copy-as-markdown' round-trips it.
 
-A trailing newline just inside END (present unless the closing fence is
-the buffer\'s last, newline-less line) is kept outside the frozen math
-region so following content stays on its own line.
+START..END come from agent-shell-markdown and are wider than the fence on
+both sides: `:block :start' sits on the newline of the blank line *before*
+the opening fence, and `:block :end' at the start of the line after the
+closing one.  Both are trimmed off the math region — otherwise the image\'s
+`display\' property would cover them and the blank line separating the
+equation from the preceding paragraph would visibly disappear, and
+following content would lose its own line.
 
 Freezing the block also keeps upstream\'s `--style-source-blocks' off it
 (that pass checks `agent-shell-markdown-frozen' at the body start), so the
@@ -935,10 +939,11 @@ fence gets no code-block chrome under the image.
 
 Called from `agent-shell-math-renderer--render-hook' with START/END from
 agent-shell-markdown\'s `:block' positions."
-  (agent-shell-math-renderer--apply-region
-   (current-buffer) start
-   (if (eq (char-before end) ?\n) (1- end) end)
-   latex))
+  (let ((start (save-excursion (goto-char start) (skip-chars-forward "\n") (point)))
+        (end (if (eq (char-before end) ?\n) (1- end) end)))
+    (when (< start end)
+      (agent-shell-math-renderer--apply-region
+       (current-buffer) start end latex))))
 
 (defun agent-shell-math-renderer--source-ranges (source-blocks)
   "Return sorted block ranges for SOURCE-BLOCKS."
