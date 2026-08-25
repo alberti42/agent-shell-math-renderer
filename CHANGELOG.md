@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-25
+
+### Changed
+
+- **Fenced math no longer rewrites the buffer.** A ```` ```math ```` block used
+  to have its backtick fences deleted and its body re-wrapped as `\[…\]`
+  before the image went on top; the buffer then held text the agent never
+  wrote, and neither a plain copy nor `M-x agent-shell-copy-as-markdown` could
+  recover the original fence. The fence is now kept verbatim under the image,
+  matching the `$$…$$` / `\[…\]` / `\(…\)` paths — every form this package
+  renders now leaves the agent's text exactly as it arrived. Copying a rendered
+  equation yields the agent's own markdown again.
+
+  The trade-off this reverses: a plain `M-w` over a rendered fence now puts
+  markdown backticks on the clipboard rather than renderable `\[…\]` LaTeX.
+
+- **`agent-shell-math-renderer-fence-languages` now defaults to `("math")`
+  alone** — a ```` ```latex ```` or ```` ```tex ```` fence is left as an
+  ordinary code block instead of being typeset. The two kinds of tag mean
+  different things: `math` names a *role* (it is GitHub's display-math
+  fence, so its body is an equation), while `latex`/`tex` name a *language*. An
+  agent tagging a fence `latex` is usually quoting LaTeX source — a preamble, a
+  `tabular`, a `tikzpicture`, a whole `\begin{align}` environment — which
+  belongs in a code block and often would not even compile as an equation.
+
+  To restore the old behaviour:
+
+  ```elisp
+  (setopt agent-shell-math-renderer-fence-languages '("math" "latex" "tex"))
+  ```
+
 ## [0.8.0] - 2026-08-19
 
 ### Added
@@ -231,7 +262,8 @@ Initial release.
   `agent-shell-markdown-render-functions` hook and public range/cache helpers;
   require agent-shell 0.57.4 for `:inline-code-ranges`.
 
-[Unreleased]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.6.0...v0.7.0

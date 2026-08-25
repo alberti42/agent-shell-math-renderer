@@ -6,7 +6,7 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.8.0
+;; Version: 0.9.0
 ;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.8.0"))
 ;; Keywords: tex, llm, math, education
 
@@ -86,8 +86,8 @@
 
 (defgroup agent-shell-math-renderer nil
   "Render LaTeX math in agent-shell's streamed markdown output.
-Display equations (`\\=\\[...\\]', `$$...$$', and ```math / ```latex /
-```tex fences) and inline `\\(...\\)' are compiled to SVG with
+Display equations (`\\=\\[...\\]', `$$...$$', and ```math fences) and
+inline `\\(...\\)' are compiled to SVG with
 `latex' + `dvisvgm' and overlaid on the raw LaTeX (kept in the
 buffer so copy/save round-trips the source)."
   :group 'agent-shell
@@ -154,7 +154,7 @@ obsolete `agent-shell-math-renderer-enabled' switch is set."
       (with-suppressed-warnings ((obsolete agent-shell-math-renderer-enabled))
         agent-shell-math-renderer-enabled)))
 
-(defcustom agent-shell-math-renderer-fence-languages '("math" "latex" "tex")
+(defcustom agent-shell-math-renderer-fence-languages '("math")
   "Fenced-code-block languages rendered as display math.
 
 A fenced block whose info string is one of these (compared
@@ -165,10 +165,22 @@ case-insensitively), e.g.
   ```
 
 is typeset as an equation instead of shown as a code block — but
-only when `agent-shell-math-renderer-enabled' is non-nil.  Several
-agents emit `math'/`latex' fences (GitHub renders ```math as
-display math), so this complements the `\\=\\[...\\]' / `$$...$$'
-delimiter styles.  Set to nil to leave such fences as code."
+only when `agent-shell-math-renderer-enabled' is non-nil.  This
+complements the `\\=\\[...\\]' / `$$...$$' delimiter styles.
+
+`math' is the sole default because it names a *role*: it is
+GitHub's display-math fence, so a block tagged with it is an
+equation.  `latex' and `tex' are deliberately excluded — they name
+a *language*.  An agent tagging a fence `latex' is usually quoting
+LaTeX source (a preamble, a `tabular', a `tikzpicture', a whole
+`\\begin{align}' environment), which belongs in a code block and
+would not even compile wrapped in `\\=\\[...\\]'.  Add them if your
+agent emits bare display math under those tags:
+
+  (setq agent-shell-math-renderer-fence-languages
+        \\='(\"math\" \"latex\" \"tex\"))
+
+Set to nil to leave every fence as code."
   :type '(repeat string)
   :safe (lambda (v) (and (listp v) (seq-every-p #'stringp v)))
   :group 'agent-shell-math-renderer)
@@ -646,11 +658,12 @@ the same style.
 
 Shared by the delimiter pass (`agent-shell-math-renderer--style-blocks'),
 the inline pass (`agent-shell-math-renderer--style-inline'), and the
-fenced-block path in `agent-shell-math-renderer--render-hook' (for ```math /
-```latex / ```tex fences).  The fenced path first rewrites the block in
-place — the backtick fences are dropped and the body wrapped in `\\=\\[...\\]'
-delimiters — and passes START..END over that `\\=\\[...\\]' text, so all three
-callers hand this function a delimited (LaTeX-renderable) region."
+fenced-block path in `agent-shell-math-renderer--render-hook' (for ```math
+fences, per `agent-shell-math-renderer-fence-languages').  Every caller
+leaves the buffer text untouched: the fenced path passes START..END over
+the whole backtick-fenced block and LATEX over its body, so what is
+frozen is always the agent\'s own markdown and what is typeset is always
+the bare equation."
   (with-current-buffer buffer
     (setq agent-shell-math-renderer--present t)
     (add-face-text-property start end 'agent-shell-math-renderer)
@@ -901,29 +914,31 @@ and nothing is recompiled \=-- images are re-fetched from the cache."
 
 ;;; Hook integration with agent-shell-markdown
 
-(defun agent-shell-math-renderer--rewrite-fenced-block (start end latex)
-  "Rewrite fenced math spanning START..END as `\\=\\[LATEX\\]' and render it.
+(defun agent-shell-math-renderer--render-fenced-block (start end latex)
+  "Render the fenced math block spanning START..END, source LATEX.
 
 START..END cover the whole fenced block (backtick fences included); LATEX
-is its already-trimmed body.  The backtick fences are dropped and the body
-re-wrapped in `\\=\\[...\\]' display delimiters, then that region is routed to
-`agent-shell-math-renderer--apply-region' (freeze + overlay).  A trailing
-newline just inside END (present unless the closing fence is the buffer's
-last, newline-less line) is kept outside the frozen math region so following
-content stays on its own line.
+is its already-trimmed body.  The buffer text is left exactly as the agent
+wrote it — the fence is *not* rewritten — and the equation image is
+overlaid on the whole block via
+`agent-shell-math-renderer--apply-region' (freeze + overlay), so a copy of
+the region yields the agent\'s own ```math fence and
+`agent-shell-copy-as-markdown' round-trips it.
+
+A trailing newline just inside END (present unless the closing fence is
+the buffer\'s last, newline-less line) is kept outside the frozen math
+region so following content stays on its own line.
+
+Freezing the block also keeps upstream\'s `--style-source-blocks' off it
+(that pass checks `agent-shell-markdown-frozen' at the body start), so the
+fence gets no code-block chrome under the image.
 
 Called from `agent-shell-math-renderer--render-hook' with START/END from
-agent-shell-markdown's `:block' positions."
-  (save-excursion
-    (goto-char start)
-    (let ((trailing-newline (eq (char-before end) ?\n)))
-      (delete-region start end)
-      (let ((open (point)))
-        (insert "\\[\n" latex "\n\\]")
-        (let ((close (point)))
-          (when trailing-newline (insert "\n"))
-          (agent-shell-math-renderer--apply-region
-           (current-buffer) open close latex))))))
+agent-shell-markdown\'s `:block' positions."
+  (agent-shell-math-renderer--apply-region
+   (current-buffer) start
+   (if (eq (char-before end) ?\n) (1- end) end)
+   latex))
 
 (defun agent-shell-math-renderer--source-ranges (source-blocks)
   "Return sorted block ranges for SOURCE-BLOCKS."
@@ -1053,16 +1068,12 @@ spans and return a `:watermark' result for `agent-shell'."
           (when-let* ((wm (agent-shell-math-renderer--protect-inline-tail
                            math-ranges)))
             (push wm watermarks)))))
-    ;; Fenced math (```math / ```latex / ```tex): replace the whole
-    ;; block — backtick fences included — with the LaTeX body wrapped
-    ;; in `\[...\]' display delimiters, then overlay the equation image
-    ;; on that.  Dropping the fences (rather than keeping them under the
-    ;; image) means a copy of the rendered region yields renderable
-    ;; LaTeX, not markdown backticks — matching the `$$...$$' / `\[...\]'
-    ;; delimiter paths, which likewise keep their (LaTeX) delimiters.
-    ;; Iterate bottom-up so replacing one block never shifts the
-    ;; positions of earlier, not-yet-processed ones.
-    (dolist (sb (reverse source-blocks))
+    ;; Fenced math (```math, per `-fence-languages'): overlay the equation
+    ;; image on the whole block — backtick fences included — leaving the
+    ;; buffer text exactly as the agent wrote it.  Like the `$$...$$' /
+    ;; `\[...\]' / `\(...\)' paths, nothing is rewritten, so a copy of the
+    ;; region round-trips the agent's own markdown.
+    (dolist (sb source-blocks)
       (when-let* ((lang (map-elt sb :language))
                   ((agent-shell-math-renderer--fence-language-p lang))
                   ((map-elt sb :complete))
@@ -1074,8 +1085,8 @@ spans and return a `:watermark' result for `agent-shell'."
                   ((not (string-empty-p latex))))
         ;; The block's :end sits at the start of the line after the
         ;; closing fence, so a trailing newline is folded in and kept out
-        ;; of the frozen region (see `--rewrite-fenced-block').
-        (agent-shell-math-renderer--rewrite-fenced-block start end latex)))
+        ;; of the frozen region (see `--render-fenced-block').
+        (agent-shell-math-renderer--render-fenced-block start end latex)))
     ;; Hand agent-shell the earliest (leftmost) frontier so both a still-open
     ;; display block and a still-open inline tail are re-scanned next chunk.
     (when watermarks

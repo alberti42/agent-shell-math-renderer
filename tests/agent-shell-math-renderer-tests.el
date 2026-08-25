@@ -275,29 +275,49 @@ extra
                    '(("$$ E=mc^2 $$" (agent-shell-math-renderer)))))))
 
 (ert-deftest agent-shell-math-renderer-fenced-math-renders ()
-  ;; A ```math fence renders as display math: the backtick fences are
-  ;; dropped and the body is rewritten as `\\[...\\]' (so a copy yields
-  ;; renderable LaTeX, not markdown), math-faced as one run.
+  ;; A ```math fence renders as display math with its buffer text left
+  ;; exactly as the agent wrote it — the fence is kept under the image (so
+  ;; a copy round-trips the agent's markdown) and math-faced as one run.
+  ;; Freezing it also keeps upstream's source-block pass off it, so the
+  ;; block gets no code-block face or language label.
   (agent-shell-math-renderer-tests--enabled
     (should (equal (agent-shell-markdown--deconstruct
                     (agent-shell-markdown-convert "```math
 E=mc^2
 ```"))
-                   '(("\\[
+                   '(("```math
 E=mc^2
-\\]" (agent-shell-math-renderer)))))))
+```" (agent-shell-math-renderer)))))))
 
-(ert-deftest agent-shell-math-renderer-fenced-latex-renders ()
-  ;; A ```latex fence is also treated as display math, rewritten to
-  ;; `\\[...\\]' the same way.
+(ert-deftest agent-shell-math-renderer-fenced-latex-stays-code ()
+  ;; A ```latex fence is *not* math by default: `latex'/`tex' name a
+  ;; language, not a role, so such a fence is usually quoted LaTeX
+  ;; source and stays a code block (see
+  ;; `agent-shell-math-renderer-fence-languages').
   (agent-shell-math-renderer-tests--enabled
-    (should (equal (agent-shell-markdown--deconstruct
-                    (agent-shell-markdown-convert "```latex
+    (let ((runs (agent-shell-markdown--deconstruct
+                 (agent-shell-markdown-convert "```latex
+E=mc^2
+```"))))
+      (should-not (seq-some (lambda (run)
+                              (memq 'agent-shell-math-renderer (cadr run)))
+                            runs))
+      (should (seq-some (lambda (run)
+                          (memq 'agent-shell-markdown-source-block (cadr run)))
+                        runs)))))
+
+(ert-deftest agent-shell-math-renderer-fenced-latex-opt-in ()
+  ;; Adding `latex' to `agent-shell-math-renderer-fence-languages' makes
+  ;; such a fence render as display math, just like ```math.
+  (agent-shell-math-renderer-tests--enabled
+    (let ((agent-shell-math-renderer-fence-languages '("math" "latex")))
+      (should (equal (agent-shell-markdown--deconstruct
+                      (agent-shell-markdown-convert "```latex
 E=mc^2
 ```"))
-                   '(("\\[
+                     '(("```latex
 E=mc^2
-\\]" (agent-shell-math-renderer)))))))
+```" (agent-shell-math-renderer))))))))
 
 (ert-deftest agent-shell-math-renderer-fenced-math-keeps-following-content ()
   ;; When content follows the fence, the block's trailing newline is
@@ -309,11 +329,25 @@ E=mc^2
 E=mc^2
 ```
 after"))
-                   '(("\\[
+                   '(("```math
 E=mc^2
-\\]" (agent-shell-math-renderer))
+```" (agent-shell-math-renderer))
                      ("
 after" nil))))))
+
+(ert-deftest agent-shell-math-renderer-fenced-math-copies-as-markdown ()
+  ;; The rendered region round-trips: because the fence is kept in the
+  ;; buffer rather than rewritten, `agent-shell-copy-as-markdown' (via the
+  ;; public `agent-shell-markdown-reconstruct') hands back the agent's own
+  ;; ```math block, not the equation's visible text.
+  (agent-shell-math-renderer-tests--enabled
+    (let ((markdown "```math
+E=mc^2
+```"))
+      (with-temp-buffer
+        (insert (agent-shell-markdown-convert markdown))
+        (should (equal (agent-shell-markdown-reconstruct (point-min) (point-max))
+                       markdown))))))
 
 (ert-deftest agent-shell-math-renderer-fenced-non-math-stays-code ()
   ;; A non-math language fence is unaffected by math rendering — it
@@ -861,8 +895,8 @@ after text.
                        'agent-shell-math-renderer-source)))))))
 
 (ert-deftest agent-shell-math-renderer-render-submitted-prompt-fenced-math ()
-  ;; Submitted prompts use the same fenced-math rewrite, so ```math prompts
-  ;; become copyable display LaTeX.
+  ;; Submitted prompts take the same fenced path, so a ```math prompt is
+  ;; typeset with its fence left intact in the buffer.
   (agent-shell-math-renderer-tests--enabled
     (with-temp-buffer
       (insert "```math\nE=mc^2\n```\n")
@@ -871,7 +905,7 @@ after text.
             (agent-shell-math-renderer-render-submitted-prompts t))
         (agent-shell-math-renderer--render-submitted-prompt
          (current-buffer) start end)
-        (should (equal (buffer-string) "\\[\nE=mc^2\n\\]\n"))
+        (should (equal (buffer-string) "```math\nE=mc^2\n```\n"))
         (goto-char (point-min))
         (should (equal (get-text-property
                         (point)

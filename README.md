@@ -33,14 +33,22 @@ copy and save round-trip renderable source.
 |------|---------|---------|
 | Bracket display math | `\[ E = mc^2 \]` | on |
 | Dollar display math | `$$ E = mc^2 $$` | on |
-| Fenced math | ```` ```math ```` / ```` ```latex ```` / ```` ```tex ```` blocks | on |
+| Fenced math | ```` ```math ```` blocks | on |
 | Inline math | `\(x^2\)` | on |
 
 - **Display delimiters** are matched only at **block level** — the opener must
   start its line and the closer must be flush — which is what makes `$$…$$`
   safe enough to enable by default without tripping on prose or currency.
-- **Fenced math** blocks are rewritten to `\[…\]` under the image, so copying a
-  rendered equation yields portable LaTeX rather than markdown backticks.
+- **Nothing is rewritten.** Every recognized form — delimiters, inline, and
+  fenced blocks alike — keeps the agent's own text in the buffer, with the
+  equation image drawn on top, so copying a rendered equation (or saving the
+  buffer) gives back exactly what the agent wrote.
+- **Fenced math**: only ```` ```math ```` counts by default — it names a *role*
+  (GitHub's display-math fence), whereas ```` ```latex ````/```` ```tex ```` name a
+  *language* and usually hold quoted LaTeX source — a preamble, a `tabular`, a
+  `tikzpicture` — which belongs in a code block. Add them via
+  `agent-shell-math-renderer-fence-languages` if your agent emits bare display
+  math under those tags.
 - **Inline `$…$` is intentionally not matched** — a lone `$` is too common in
   prose to detect safely. Use `\(…\)` for inline math.
 - Math inside code fences and inline `` `code` `` spans is left untouched.
@@ -266,7 +274,7 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-enabled` | `nil` | **Obsolete** compatibility switch (use the mode). Non-nil via Customize/`setopt` enables the mode in all agent-shell buffers. |
 | `agent-shell-math-renderer-render-submitted-prompts` | `nil` | Also render math in submitted user prompts when the mode is on. |
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
-| `agent-shell-math-renderer-fence-languages` | `("math" "latex" "tex")` | Fenced-code languages rendered as display math. `nil` leaves them as code. |
+| `agent-shell-math-renderer-fence-languages` | `("math")` | Fenced-code languages rendered as display math. Add `"latex"`/`"tex"` if your agent emits display math under those tags; `nil` leaves every fence as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
 | `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the engine's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
