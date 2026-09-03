@@ -82,20 +82,18 @@ The package hooks into `agent-shell` through its public
 advice. With agent-shell's default (in-place) renderer, math renders
 automatically once installed.
 
-> **Dependency:** `latex-to-svg-backend` is not yet on MELPA, so it must be installed
-> too. Each recipe below installs it alongside the renderer; declare the
-> dependency *before* the renderer so it is on `load-path` when the renderer's
-> `(require 'latex-to-svg-backend)` runs. Once both are on MELPA this becomes automatic
-> via the `Package-Requires` header.
+> **Dependency:** the rendering engine
+> [`latex-to-svg-backend`](https://melpa.org/#/latex-to-svg-backend) is on MELPA
+> and is pulled in automatically through the `Package-Requires` header, so the
+> recipes below only install the renderer. `straight` and `elpaca` resolve it
+> from their bundled MELPA recipes; the `package.el` recipes need MELPA in
+> `package-archives`. This package is not on MELPA yet, hence the git recipes.
 
 ### `use-package` + `:vc` (Emacs 30+)
 
 The built-in way — no `straight`, no manual `package-vc-install`:
 
 ```elisp
-(use-package latex-to-svg-backend
-  :vc (:url "https://github.com/alberti42/latex-to-svg-backend" :rev :newest))
-
 (use-package agent-shell-math-renderer
   :vc (:url "https://github.com/alberti42/agent-shell-math-renderer" :rev :newest)
   :after (agent-shell latex-to-svg-backend)
@@ -113,10 +111,6 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 ### `use-package` + `straight`
 
 ```elisp
-(use-package latex-to-svg-backend
-  :straight (latex-to-svg-backend
-             :type git :host github :repo "alberti42/latex-to-svg-backend"))
-
 (use-package agent-shell-math-renderer
   :straight (agent-shell-math-renderer
              :type git :host github
@@ -136,7 +130,6 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 ### `elpaca`
 
 ```elisp
-(elpaca (latex-to-svg-backend :host github :repo "alberti42/latex-to-svg-backend"))
 (elpaca (agent-shell-math-renderer
          :host github :repo "alberti42/agent-shell-math-renderer"))
 (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)
@@ -148,11 +141,9 @@ The built-in way — no `straight`, no manual `package-vc-install`:
 
 ### `package-vc-install` (Emacs 29+)
 
-For Emacs 29, where `use-package` has no `:vc` keyword — install the dependency
-first:
+For Emacs 29, where `use-package` has no `:vc` keyword:
 
 ```elisp
-(package-vc-install "https://github.com/alberti42/latex-to-svg-backend")
 (package-vc-install "https://github.com/alberti42/agent-shell-math-renderer")
 (require 'agent-shell-math-renderer)
 (add-hook 'agent-shell-mode-hook #'agent-shell-math-renderer-mode)

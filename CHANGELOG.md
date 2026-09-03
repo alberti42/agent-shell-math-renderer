@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Installation now pulls the rendering engine from MELPA. `latex-to-svg-backend`
+  was accepted there, so it arrives through the `Package-Requires` header and
+  the recipes install only this package; the instructions no longer carry a
+  second recipe per installer.
 - A buffer font the frame cannot measure is now reported once per buffer,
   instead of being passed over silently. The height stays unknown either way,
   so the engine still defers sizing to display time; the difference is that a
