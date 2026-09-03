@@ -700,6 +700,9 @@ is preserved."
               (when wrap-prefix
                 (put-text-property s e 'wrap-prefix wrap-prefix)))))))))
 
+(defvar-local agent-shell-math-renderer--font-warned nil
+  "Non-nil once an unmeasurable buffer font has been reported in this buffer.")
+
 (defun agent-shell-math-renderer--font-height (&optional buffer)
   "Return BUFFER's font pixel height in a graphical frame showing it, or nil.
 
@@ -709,14 +712,29 @@ async compile callback firing while a terminal frame is current), and
 without searching or touching unrelated frames.  Uses `with-selected-frame'
 \(a temporary, non-raising, non-focus-stealing selection), so it never
 makes a parked child frame appear.  Returns nil when BUFFER is shown in
-no graphical window; the backend then defers sizing to display time."
+no graphical window; the backend then defers sizing to display time.
+
+A font the frame cannot measure yields nil too, but is reported once per
+buffer rather than passed over: `default-font-height' reads `font-info',
+which returns nil for a font it cannot open, and then signals
+`wrong-type-argument'."
   (let ((buffer (or buffer (current-buffer))))
     (when-let* ((win (get-buffer-window buffer t))
                 (frame (window-frame win))
                 ((display-graphic-p frame)))
       (with-selected-frame frame
         (with-current-buffer buffer
-          (ignore-errors (default-font-height)))))))
+          (condition-case err
+              (default-font-height)
+            (wrong-type-argument
+             (unless agent-shell-math-renderer--font-warned
+               (setq agent-shell-math-renderer--font-warned t)
+               (display-warning
+                'agent-shell-math-renderer
+                (format "Cannot measure the buffer font: %s"
+                        (error-message-string err))
+                :warning))
+             nil)))))))
 
 (defun agent-shell-math-renderer--render (buffer start end latex &optional inline)
   "Render LATEX over BUFFER's START..END as an equation image.
@@ -934,7 +952,7 @@ equation from the preceding paragraph would visibly disappear, and
 following content would lose its own line.
 
 Freezing the block also keeps upstream\'s `--style-source-blocks' off it
-(that pass checks `agent-shell-markdown-frozen' at the body start), so the
+\(that pass checks `agent-shell-markdown-frozen' at the body start), so the
 fence gets no code-block chrome under the image.
 
 Called from `agent-shell-math-renderer--render-hook' with START/END from

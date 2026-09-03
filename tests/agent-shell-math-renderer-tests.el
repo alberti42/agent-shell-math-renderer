@@ -18,6 +18,10 @@
 
 (require 'cl-lib)
 (require 'ert)
+;; `display-warning' is autoloaded, and `cl-letf' resolving that autoload loads
+;; warnings.el, which redefines it -- clobbering a stub installed in the same
+;; `cl-letf'.  Load it up front so stubbing it is deterministic.
+(require 'warnings)
 
 (add-to-list 'load-path
              (expand-file-name ".." (file-name-directory
@@ -705,6 +709,24 @@ after text.
         (agent-shell-math-renderer--refresh-if-changed))
       ;; Refreshed, and scoped to this buffer.
       (should (eq refreshed (current-buffer))))))
+
+(ert-deftest agent-shell-math-renderer-font-height-reports-unmeasurable-font ()
+  ;; A font the frame cannot measure leaves the height unknown, so the backend
+  ;; defers sizing -- but it is reported, once per buffer, never swallowed.
+  (let ((warnings 0))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'get-buffer-window)
+                 (lambda (&rest _) (selected-window)))
+                ((symbol-function 'window-frame) (lambda (&rest _) (selected-frame)))
+                ((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+                ((symbol-function 'default-font-height)
+                 (lambda (&rest _) (signal 'wrong-type-argument (list 'arrayp nil))))
+                ((symbol-function 'display-warning)
+                 (lambda (&rest _) (cl-incf warnings))))
+        (should-not (agent-shell-math-renderer--font-height))
+        (should-not (agent-shell-math-renderer--font-height))
+        ;; One diagnosis for the buffer, not one per equation.
+        (should (= 1 warnings))))))
 
 (ert-deftest agent-shell-math-renderer-refresh-if-changed-skips-non-present ()
   ;; In a buffer with no equations (`--present' nil), a hook firing is a
