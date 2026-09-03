@@ -462,7 +462,7 @@ is a real match.
 Point and the match data are left as `re-search-forward' leaves them;
 failure returns nil rather than signalling.
 
-Escapes are still intact at this point.  We cannot rely on agent-shell
+Escapes are still intact at this point.  We cannot rely on `agent-shell'
 since it resolves them in `--encode-escapes', which only runs after the
 render functions."
   (let (found)
