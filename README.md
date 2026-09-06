@@ -82,12 +82,38 @@ The package hooks into `agent-shell` through its public
 advice. With agent-shell's default (in-place) renderer, math renders
 automatically once installed.
 
-> **Dependency:** the rendering engine
-> [`latex-to-svg-backend`](https://melpa.org/#/latex-to-svg-backend) is on MELPA
-> and is pulled in automatically through the `Package-Requires` header, so the
-> recipes below only install the renderer. `straight` and `elpaca` resolve it
-> from their bundled MELPA recipes; the `package.el` recipes need MELPA in
-> `package-archives`. This package is not on MELPA yet, hence the git recipes.
+> **Dependencies:** [`agent-shell`](https://melpa.org/#/agent-shell) and the
+> rendering engine
+> [`latex-to-svg-backend`](https://melpa.org/#/latex-to-svg-backend) are on
+> MELPA too and arrive through the `Package-Requires` header — nothing to
+> install separately.
+
+### MELPA
+
+The package is on [MELPA](https://melpa.org/#/agent-shell-math-renderer):
+
+```
+M-x package-install RET agent-shell-math-renderer RET
+```
+
+Then turn it on:
+
+```elisp
+(use-package agent-shell-math-renderer
+  :ensure t
+  :hook (agent-shell-mode . agent-shell-math-renderer-mode)
+  ;; Optional: re-tint equations the instant you switch themes, and
+  ;; rescale them when the frame font changes.  See "Usage" below; omit
+  ;; if you never change themes or font sizes at runtime.
+  :config
+  (add-hook 'enable-theme-functions
+            #'agent-shell-math-renderer-on-appearance-change)
+  (add-hook 'after-setting-font-hook
+            #'agent-shell-math-renderer-on-appearance-change))
+```
+
+The recipes below install from git instead, for tracking the development
+version.
 
 ### `use-package` + `:vc` (Emacs 30+)
 
