@@ -63,7 +63,7 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 - **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.66.1 or newer —
   the release with the backslash-escape pass and the right-label render-function
   suppression the hook relies on)
-- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.8.0
+- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.9.0
   or newer — the
   rendering engine (equation compile, caching, display-time tint/scale) is
   factored out into this standalone library. All typesetting knobs (LaTeX /
@@ -297,7 +297,7 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
-| `agent-shell-math-renderer-background-padding` | `nil` | Padding (pt) between the equation and the box edge; only visible with a background color. `nil`/`0` crops to the ink. Re-renders from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-padding` | `nil` | Padding (pt) between the equation and the box edge. A number applies to all four sides; a list of four numbers pads each side separately — `(TOP RIGHT BOTTOM LEFT)`, so `(0 0 0 6)` is a left gutter. `nil`/`0` crops to the ink. Re-renders from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 
 The **rendering-engine** options (equation size, toolchain, preamble, caching,
 placeholder / non-graphic behaviour) live in the

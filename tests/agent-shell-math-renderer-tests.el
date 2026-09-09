@@ -746,6 +746,29 @@ after text.
         (agent-shell-math-renderer--refresh-if-changed))
       (should-not refreshed))))
 
+(ert-deftest agent-shell-math-renderer-padding-obsolete-alias-tracks-new-name ()
+  ;; The pre-0.10.0 name stays usable: it is an alias for the new one, so a
+  ;; config that still sets it keeps working.  (That a value set *before* this
+  ;; file loads survives depends on the alias preceding the defcustom in the
+  ;; source -- `defvaralias' discards a value the obsolete name already holds.)
+  (should (eq (indirect-variable 'agent-shell-math-renderer-background-padding)
+              'agent-shell-math-renderer-padding))
+  (should (get 'agent-shell-math-renderer-background-padding
+               'byte-obsolete-variable))
+  (let ((agent-shell-math-renderer-background-padding '(0 0 0 6)))
+    (should (equal agent-shell-math-renderer-padding '(0 0 0 6)))))
+
+(ert-deftest agent-shell-math-renderer-padding-safe-matches-the-engine ()
+  ;; A file-local padding is hand-written Lisp, so the `:safe' predicate
+  ;; accepts every shape the engine takes (1-4 numbers) and nothing else --
+  ;; a value Customize cannot express must still not need a y/n prompt.
+  (let ((safe (get 'agent-shell-math-renderer-padding 'safe-local-variable)))
+    (should safe)
+    (dolist (ok (list nil 3 3.5 '(0 0 0 6) '(2 6) '(1 2 3)))
+      (should (funcall safe ok)))
+    (dolist (bad (list "3" '(1 2 3 4 5) '(1 "2") 'x))
+      (should-not (funcall safe bad)))))
+
 (ert-deftest agent-shell-math-renderer-text-scale-wired-to-refresh ()
   ;; A buffer zoom (`text-scale-adjust') fires `text-scale-mode-hook' but
   ;; neither display nor theme hooks, so the mode subscribes to it

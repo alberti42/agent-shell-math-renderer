@@ -7,7 +7,7 @@
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.9.1
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.8.0"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.9.0"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -266,21 +266,48 @@ to apply in every buffer at once)."
   :safe (lambda (v) (or (null v) (stringp v)))
   :group 'agent-shell-math-renderer)
 
-(defcustom agent-shell-math-renderer-background-padding nil
-  "Padding (in pt) around equations inside the background box.
+;; Before the defcustom on purpose: `defvaralias' discards a value the
+;; obsolete name already holds, so a config that sets the old name before
+;; this file loads would silently lose it if the alias came afterwards.
+(define-obsolete-variable-alias 'agent-shell-math-renderer-background-padding
+  'agent-shell-math-renderer-padding "0.10.0")
 
-Has a visible effect only when
-`agent-shell-math-renderer-background-color' is set: it grows the
-colored box beyond the equation ink on all sides, so the ink is
-not flush against the box edge.  A number of pt (e.g. 3) that
-scales with the equation; nil or 0 crops the box to the ink.
+(defcustom agent-shell-math-renderer-padding nil
+  "Padding (in pt) added around rendered equations.
+
+Grows the box beyond the equation ink, so the ink is not flush
+against the box edge, and scales with the equation.  Either a
+number of pt (e.g. 3) applied to all four sides, or a list of four
+numbers (TOP RIGHT BOTTOM LEFT) to pad each side separately -- so
+a left gutter and nothing else is (0 0 0 6).  nil or 0 crops the
+box to the ink.  Set from Lisp, the shorter CSS forms the engine
+accepts work too (one, two or three numbers: see
+`latex-to-svg-backend'), but Customize offers only the number and
+the four-side list.
+
+This mainly matters with
+`agent-shell-math-renderer-background-color' set, since padding is
+what separates the ink from the box edge.  Without a box color the
+padding is transparent, so a symmetric value is invisible but an
+asymmetric one still shifts the equation within its own image (a
+left-only pad indents it).
 
 Passed to `latex-to-svg-backend' as `:padding'; it applies from
 cache (no LaTeX recompile).  After changing it, run
 `agent-shell-math-renderer-refresh' to apply (with a prefix argument
 to apply in every buffer at once)."
-  :type '(choice (const :tag "None" nil) number)
-  :safe (lambda (v) (or (null v) (numberp v)))
+  :type '(choice (const :tag "None" nil)
+                 (number :tag "All four sides (pt)")
+                 (list :tag "Per side (pt)"
+                       (number :tag "Top   ")
+                       (number :tag "Right ")
+                       (number :tag "Bottom")
+                       (number :tag "Left  ")))
+  ;; A file-local value is hand-written Lisp, so accept every shape the
+  ;; engine does (1-4 numbers), not just the two Customize offers.
+  :safe (lambda (v) (or (null v) (numberp v)
+                        (and (consp v) (<= 1 (length v) 4)
+                             (seq-every-p #'numberp v))))
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-render-submitted-prompts nil
@@ -684,6 +711,8 @@ No-ops when BUFFER is dead or the region is no longer valid (it
 was edited or killed away).  Runs with `with-silent-modifications'
 so an async overlay doesn't flag the buffer modified, and carries
 the region's existing `line-prefix' / `wrap-prefix' so indentation
+is preserved.
+
 is preserved."
   (when (and image (buffer-live-p buffer))
     (with-current-buffer buffer
@@ -757,7 +786,7 @@ latter by `agent-shell-math-renderer-inline-rescale' /
 `-display-rescale' (via `:rescale-by') for INLINE / display math.
 The tint, an optional box color, and its padding are overridden by
 `agent-shell-math-renderer-foreground-color' / `-background-color' /
-`-background-padding' (via `:color' / `:background' / `:padding'),
+`-padding' (via `:color' / `:background' / `:padding'),
 all nil by default (follow the buffer foreground / transparent /
 cropped to the ink).  The buffer font height is measured against
 BUFFER's actual display frame (`agent-shell-math-renderer--font-height')
@@ -775,7 +804,7 @@ then re-renders)."
                       agent-shell-math-renderer-display-rescale))
            (color agent-shell-math-renderer-foreground-color)
            (background agent-shell-math-renderer-background-color)
-           (padding agent-shell-math-renderer-background-padding)
+           (padding agent-shell-math-renderer-padding)
            (image (latex-to-svg-backend doc :rescale-by rescale :color color
                                         :background background :padding padding
                                         :font-height font-height)))
