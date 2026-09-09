@@ -297,6 +297,7 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-center-display-math` | `nil` | Center display-math equations in the window (inline math is never centered). Replaces agent-shell's indentation on that line, since the position is measured from the window. Run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-padding` | `nil` | Padding (pt) between the equation and the box edge. A number applies to all four sides; a list of four numbers pads each side separately — `(TOP RIGHT BOTTOM LEFT)`, so `(0 0 0 6)` is a left gutter. `nil`/`0` crops to the ink. Re-renders from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 
 The **rendering-engine** options (equation size, toolchain, preamble, caching,

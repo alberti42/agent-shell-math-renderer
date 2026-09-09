@@ -746,6 +746,43 @@ after text.
         (agent-shell-math-renderer--refresh-if-changed))
       (should-not refreshed))))
 
+(ert-deftest agent-shell-math-renderer-centers-display-math-only ()
+  ;; Centering is a display-time indent: the line carrying a display
+  ;; equation gets a `line-prefix' stretch reaching the window center less
+  ;; half the image.  Inline math belongs in the run of text, so it keeps
+  ;; whatever indentation agent-shell gave it.
+  (let ((agent-shell-math-renderer-center-display-math t))
+    (with-temp-buffer
+      (insert "xx")
+      ;; Display math: the stretch names the image, so redisplay can size it
+      ;; without anyone measuring the SVG.
+      (agent-shell-math-renderer--overlay-image
+       (current-buffer) (point-min) (point-max) 'fake-image nil)
+      (should (equal (get-text-property (point-min) 'display) 'fake-image))
+      (should (equal (get-text-property (point-min) 'line-prefix)
+                     '(space :align-to (- center (0.5 . fake-image)))))))
+  (let ((agent-shell-math-renderer-center-display-math t))
+    (with-temp-buffer
+      (insert "xx")
+      ;; Inline: not centered, and the surrounding indentation is preserved.
+      (put-text-property (point-min) (point-max) 'line-prefix "  ")
+      (agent-shell-math-renderer--overlay-image
+       (current-buffer) (point-min) (point-max) 'fake-image t)
+      (should (equal (get-text-property (point-min) 'line-prefix) "  ")))))
+
+(ert-deftest agent-shell-math-renderer-centering-off-preserves-indent ()
+  ;; Off (the default), the region's own `line-prefix' / `wrap-prefix' are
+  ;; carried as before -- agent-shell's indentation must survive a render.
+  (should-not agent-shell-math-renderer-center-display-math)
+  (with-temp-buffer
+    (insert "xx")
+    (put-text-property (point-min) (point-max) 'line-prefix "  ")
+    (put-text-property (point-min) (point-max) 'wrap-prefix "    ")
+    (agent-shell-math-renderer--overlay-image
+     (current-buffer) (point-min) (point-max) 'fake-image nil)
+    (should (equal (get-text-property (point-min) 'line-prefix) "  "))
+    (should (equal (get-text-property (point-min) 'wrap-prefix) "    "))))
+
 (ert-deftest agent-shell-math-renderer-padding-obsolete-alias-tracks-new-name ()
   ;; The pre-0.10.0 name stays usable: it is an alias for the new one, so a
   ;; config that still sets it keeps working.  (That a value set *before* this

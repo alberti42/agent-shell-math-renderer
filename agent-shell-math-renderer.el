@@ -207,6 +207,30 @@ can be added later if agents prove to need it."
   :safe #'booleanp
   :group 'agent-shell-math-renderer)
 
+(defcustom agent-shell-math-renderer-center-display-math nil
+  "Whether to center display-math equations in the window.
+
+Display math is centered the way a LaTeX document centers it, rather
+than starting where the surrounding chat text starts.  Inline math is
+never centered: it belongs in the run of text.
+
+This is a display-time indent, not part of the image: the equation
+keeps its own size and any `agent-shell-math-renderer-padding' box, and
+the line it sits on gets a `line-prefix' stretching to put the image's
+center on the window's center.  Redisplay evaluates that stretch, so it
+follows a window resize, a split or a font change on its own.  After
+changing this option, run `agent-shell-math-renderer-refresh' to apply
+it to equations already on screen (with a prefix argument, in every
+buffer at once).
+
+Centering replaces agent-shell's own indentation for that line, since
+the position is measured from the window rather than from the
+surrounding text.  An equation wider than the window simply stays where
+it is: the stretch cannot pull it left."
+  :type 'boolean
+  :safe #'booleanp
+  :group 'agent-shell-math-renderer)
+
 (defcustom agent-shell-math-renderer-inline-rescale 1.0
   "Size multiplier for inline math previews (`\\(...\\)').
 Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
@@ -703,7 +727,8 @@ the bare equation."
                  rear-nonsticky (agent-shell-markdown-frozen)))
     (agent-shell-math-renderer--render buffer start end latex inline)))
 
-(defun agent-shell-math-renderer--overlay-image (buffer start end image)
+(defun agent-shell-math-renderer--overlay-image (buffer start end image
+                                                        &optional inline)
   "Lay IMAGE over BUFFER's START..END as a `display' property.
 
 START / END may be markers (async case) or integers (sync case).
@@ -713,7 +738,12 @@ so an async overlay doesn't flag the buffer modified, and carries
 the region's existing `line-prefix' / `wrap-prefix' so indentation
 is preserved.
 
-is preserved."
+With `agent-shell-math-renderer-center-display-math' on and INLINE
+nil, the `line-prefix' instead becomes a stretch reaching the window
+center less half the image, which centers the equation -- see that
+option.  Nothing measures IMAGE: the stretch names it and redisplay
+sizes it (`image-size' on an SVG is not reliable, see
+`latex-to-svg-backend')."
   (when (and image (buffer-live-p buffer))
     (with-current-buffer buffer
       (let ((s (if (markerp start) (marker-position start) start))
@@ -721,11 +751,18 @@ is preserved."
         (when (and s e (<= (point-min) s) (< s e) (<= e (point-max)))
           (with-silent-modifications
             (let ((line-prefix (get-text-property s 'line-prefix))
-                  (wrap-prefix (get-text-property s 'wrap-prefix)))
+                  (wrap-prefix (get-text-property s 'wrap-prefix))
+                  (center (and agent-shell-math-renderer-center-display-math
+                               (not inline)
+                               `(space :align-to
+                                       (- center (0.5 . ,image))))))
               (put-text-property s e 'display image)
               (put-text-property s e 'mouse-face 'highlight)
-              (when line-prefix
-                (put-text-property s e 'line-prefix line-prefix))
+              ;; Centering measures from the window, so it replaces the
+              ;; surrounding indentation rather than adding to it.
+              (cond (center (put-text-property s e 'line-prefix center))
+                    (line-prefix
+                     (put-text-property s e 'line-prefix line-prefix)))
               (when wrap-prefix
                 (put-text-property s e 'wrap-prefix wrap-prefix)))))))))
 
@@ -815,7 +852,8 @@ then re-renders)."
       (setq agent-shell-math-renderer--rendered-appearance
             (latex-to-svg-backend-appearance font-height))
       (if image
-          (agent-shell-math-renderer--overlay-image buffer start end image)
+          (agent-shell-math-renderer--overlay-image buffer start end image
+                                                     inline)
         ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
         ;; the region as markers so it survives further streaming output.
         (let ((s (copy-marker start))
@@ -835,7 +873,8 @@ then re-renders)."
                   (latex-to-svg-backend
                    doc :rescale-by rescale :color color
                    :background background :padding padding
-                   :font-height (agent-shell-math-renderer--font-height buffer))))))))))))
+                   :font-height (agent-shell-math-renderer--font-height buffer))
+                  inline))))))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.
