@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-09
+
+### Added
+
+- `agent-shell-math-renderer-center-display-math` (default nil): center
+  display-math equations in the window, the way a LaTeX document centers them.
+  Inline math is never centered. This is a display-time indent, not part of
+  the image — the line's `line-prefix` becomes
+  `(space :align-to (- center (0.5 . IMAGE)))`, so redisplay re-centers on a
+  window resize, a split or a font change, and nothing measures the image
+  (`image-size` on an undisplayed SVG is not reliable). Centering replaces
+  agent-shell's indentation for that line, since the position is measured from
+  the window rather than the surrounding text.
+- Per-side padding: `agent-shell-math-renderer-padding` now takes a list of
+  four numbers (TOP RIGHT BOTTOM LEFT) as well as a single number, so the box
+  can have a left gutter (or any other asymmetric inset) instead of the same
+  inset all round — a left gutter and nothing else is `(0 0 0 6)`. A plain
+  number keeps its meaning (all four sides). The `:safe` predicate accepts
+  every shape the engine does, so a file-local value can use the engine's
+  shorter CSS forms too. Requires `latex-to-svg-backend` 0.9.0.
+
+### Changed
+
+- `agent-shell-math-renderer-background-padding` is renamed
+  `agent-shell-math-renderer-padding`: with per-side values the option is no
+  longer only about the background box — without a box color the padding is
+  transparent, so a symmetric value is invisible, but an asymmetric one still
+  shifts the equation within its own image (a left-only pad indents it). The
+  old name keeps working as an obsolete alias, declared *before* the
+  `defcustom` so a config that sets it before this file loads is still
+  honored.
+
 ## [0.9.1] - 2026-09-03
 
 ### Changed
@@ -286,7 +318,8 @@ Initial release.
   `agent-shell-markdown-render-functions` hook and public range/cache helpers;
   require agent-shell 0.57.4 for `:inline-code-ranges`.
 
-[Unreleased]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/alberti42/agent-shell-math-renderer/compare/v0.7.1...v0.8.0
