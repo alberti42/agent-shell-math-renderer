@@ -1,5 +1,12 @@
 # agent-shell-math-renderer
 
+![Made for GNU Emacs](https://img.shields.io/badge/Made%20for-GNU%20Emacs-7F5AB6?logo=gnuemacs&logoColor=white)
+[![MELPA](https://melpa.org/packages/agent-shell-math-renderer-badge.svg)](https://melpa.org/#/agent-shell-math-renderer)
+[![MELPA Stable](https://stable.melpa.org/packages/agent-shell-math-renderer-badge.svg)](https://stable.melpa.org/#/agent-shell-math-renderer)
+[![melpazoid](https://github.com/alberti42/agent-shell-math-renderer/actions/workflows/melpazoid.yml/badge.svg)](https://github.com/alberti42/agent-shell-math-renderer/actions/workflows/melpazoid.yml)
+[![CI](https://github.com/alberti42/agent-shell-math-renderer/actions/workflows/ci.yml/badge.svg)](https://github.com/alberti42/agent-shell-math-renderer/actions/workflows/ci.yml)
+[![License: GPL-3.0](https://img.shields.io/github/license/alberti42/agent-shell-math-renderer)](LICENSE)
+
 Render LaTeX math in [`agent-shell`](https://github.com/xenodium/agent-shell)'s
 streamed markdown output. Display equations and inline math in an agent's
 response are compiled with `latex` → `dvisvgm` and shown as crisp,

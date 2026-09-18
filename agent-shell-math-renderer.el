@@ -1343,4 +1343,8 @@ take effect — use `setopt' or the hook above."
 
 (provide 'agent-shell-math-renderer)
 
+;; Local Variables:
+;; checkdoc-symbol-words: ("display-time")
+;; End:
+
 ;;; agent-shell-math-renderer.el ends here
