@@ -6,8 +6,8 @@
 # acp) and latex-to-svg-backend.  package.el installs them from MELPA, which
 # is where a user gets them too, so a dependency that changes under this
 # package shows up here rather than in a user's report.  Every later step
-# calls `package-initialize' to put them on the load-path.  (On the `ratex'
-# branch the backend is a checkout instead, passed with `-L': see its step.)
+# calls `package-initialize' to put them on the load-path.  (For now the
+# backend is a checkout instead, passed with `-L': see its step.)
 #
 # The suite needs no TeX toolchain, no graphical display and no Emacs built
 # with librsvg: nothing in it skips.
@@ -19,7 +19,7 @@ name: CI
 
 on:
   push:
-    branches: [main, ratex]
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -69,15 +69,15 @@ jobs:
           done
           exit 1
 
-      # On the `ratex' branch only: this package passes `:engine', which
-      # the backend on MELPA (0.9.0) does not accept, so the backend is checked
-      # out at its own `ratex' branch instead of installed from MELPA.
-      # Restore the MELPA install once the backend is released with it.
-      - name: Check out the backend at its ratex branch
+      # This package passes `:engine', which the backend on MELPA
+      # (0.9.0) does not accept, so the backend is checked out at its main
+      # branch instead of installed from MELPA.  Restore the MELPA install
+      # once the backend is released with it.
+      - name: Check out the backend at its main branch
         uses: actions/checkout@v4
         with:
           repository: alberti42/latex-to-svg-backend
-          ref: ratex
+          ref: main
           path: latex-to-svg-backend
 
       - name: Byte-compile, warnings as errors
