@@ -910,6 +910,36 @@ is fixed, so no graphical frame is needed."
         (dolist (call calls)
           (should (eq quiet (plist-get (cdr call) :quiet))))))))
 
+(ert-deftest agent-shell-math-renderer-help-echo-names-the-engine ()
+  ;; Once the image is laid, the tooltip names the engine before the LaTeX,
+  ;; and says so when the picture came from the fallback.  Compared after
+  ;; `substitute-command-keys', which is what the user reads.
+  (dolist (case '((ratex ratex "Typeset with RaTeX: \\{ f'(x) \\}")
+                  (latex latex "Typeset with LaTeX: \\{ f'(x) \\}")
+                  (ratex latex
+                         "Typeset with LaTeX (RaTeX could not parse it): \\{ f'(x) \\}")))
+    (let ((agent-shell-math-renderer-engine (nth 0 case))
+          (queried nil))
+      (cl-letf (((symbol-function 'latex-to-svg-backend-available-p) #'always)
+                ((symbol-function 'agent-shell-math-renderer--font-height)
+                 (lambda (&rest _) 20))
+                ((symbol-function 'latex-to-svg-backend-appearance) #'ignore)
+                ((symbol-function 'latex-to-svg-backend)
+                 (lambda (&rest _) 'fake-image))
+                ((symbol-function 'latex-to-svg-backend-engine-used)
+                 (lambda (&rest args) (setq queried args) (nth 1 case))))
+        (with-temp-buffer
+          (insert "xx")
+          (agent-shell-math-renderer--render
+           (current-buffer) (point-min) (point-max) "\\{ f'(x) \\}")
+          ;; Asked with the string and arguments the image was requested with.
+          (should (equal queried
+                         (list "\\[ \\{ f'(x) \\} \\]" (nth 0 case)
+                               (and (eq (nth 0 case) 'ratex) 'latex))))
+          (should (equal (nth 2 case)
+                         (substitute-command-keys
+                          (get-text-property (point-min) 'help-echo)))))))))
+
 (ert-deftest agent-shell-math-renderer-refresh-passes-new-engine ()
   ;; A refresh after changing the option renders with the new engine.
   (agent-shell-math-renderer-tests--with-backend-calls calls

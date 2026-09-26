@@ -267,7 +267,8 @@ LaTeX picture in the cache.
 
 Two consequences: a fallback equation is typeset in LaTeX's style
 \(Computer Modern) next to RaTeX's (KaTeX's fonts), and it takes about
-300 ms to compile instead of about 6 ms.  The fallback needs `latex'
+300 ms to compile instead of about 6 ms.  Hovering over an equation
+shows which engine typeset it.  The fallback needs `latex'
 and `dvisvgm'; without them the backend warns, and you either install
 them or set this option to nil.  When nil, an equation the engine
 rejects keeps its raw text."
@@ -769,6 +770,29 @@ before each backslash, backquote and apostrophe makes
 `substitute-command-keys' copy it literally."
   (replace-regexp-in-string "[\\`']" "\\\\=\\&" latex))
 
+(defun agent-shell-math-renderer--engine-name (engine)
+  "Return the name of ENGINE to show a user: \"LaTeX\" or \"RaTeX\"."
+  (if (eq engine 'ratex) "RaTeX" "LaTeX"))
+
+(defun agent-shell-math-renderer--help-echo (doc latex engine fallback)
+  "Return the `help-echo' of an equation LATEX, sent to the backend as DOC.
+It names the engine that typeset the picture, then shows LATEX:
+\"Typeset with RaTeX: LATEX\".  ENGINE and FALLBACK are the ones DOC
+was sent with; when the picture came from FALLBACK, because ENGINE
+could not typeset DOC (see `latex-to-svg-backend-engine-used'), it
+says so: \"Typeset with LaTeX (RaTeX could not parse it): LATEX\"."
+  (let* ((engine (or engine 'latex))
+         (used (or (latex-to-svg-backend-engine-used doc engine fallback)
+                   engine)))
+    (concat (if (eq used engine)
+                (format "Typeset with %s"
+                        (agent-shell-math-renderer--engine-name used))
+              (format "Typeset with %s (%s could not parse it)"
+                      (agent-shell-math-renderer--engine-name used)
+                      (agent-shell-math-renderer--engine-name engine)))
+            ": "
+            (agent-shell-math-renderer--help-echo-text latex))))
+
 (defun agent-shell-math-renderer--apply-region (buffer start end latex &optional inline)
   "Mark BUFFER's START..END as math with source LATEX and render it.
 
@@ -804,7 +828,8 @@ the bare equation."
     (agent-shell-math-renderer--render buffer start end latex inline)))
 
 (defun agent-shell-math-renderer--overlay-image (buffer start end image
-                                                        &optional inline)
+                                                        &optional inline
+                                                        help-echo)
   "Lay IMAGE over BUFFER's START..END as a `display' property.
 
 START / END may be markers (async case) or integers (sync case).
@@ -819,7 +844,11 @@ nil, the `line-prefix' instead becomes a stretch reaching the window
 center less half the image, which centers the equation -- see that
 option.  Nothing measures IMAGE: the stretch names it and redisplay
 sizes it (`image-size' on an SVG is not reliable, see
-`latex-to-svg-backend')."
+`latex-to-svg-backend').
+
+HELP-ECHO, when non-nil, replaces the region's `help-echo': the
+tooltip can name the engine only once the image exists (see
+`agent-shell-math-renderer--help-echo')."
   (when (and image (buffer-live-p buffer))
     (with-current-buffer buffer
       (let ((s (if (markerp start) (marker-position start) start))
@@ -834,6 +863,8 @@ sizes it (`image-size' on an SVG is not reliable, see
                                        (- center (0.5 . ,image))))))
               (put-text-property s e 'display image)
               (put-text-property s e 'mouse-face 'highlight)
+              (when help-echo
+                (put-text-property s e 'help-echo help-echo))
               ;; Centering measures from the window, so it replaces the
               ;; surrounding indentation rather than adding to it.
               (cond (center (put-text-property s e 'line-prefix center))
@@ -940,8 +971,9 @@ then re-renders)."
       (setq agent-shell-math-renderer--rendered-appearance
             (latex-to-svg-backend-appearance font-height))
       (if image
-          (agent-shell-math-renderer--overlay-image buffer start end image
-                                                     inline)
+          (agent-shell-math-renderer--overlay-image
+           buffer start end image inline
+           (agent-shell-math-renderer--help-echo doc latex engine fallback))
         ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
         ;; the region as markers so it survives further streaming output.
         (let ((s (copy-marker start))
@@ -964,7 +996,9 @@ then re-renders)."
                    :rescale-by rescale :color color
                    :background background :padding padding
                    :font-height (agent-shell-math-renderer--font-height buffer))
-                  inline))))))))))
+                  inline
+                  (agent-shell-math-renderer--help-echo
+                   doc latex engine fallback)))))))))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer)
   "Re-render every display-math region in BUFFER for the current colors.

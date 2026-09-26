@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Configuration problems, such as missing programs, still warn. When nil,
   the backend warns once per equation per buffer, naming the buffer and
   linking to the log.
+- Hovering over an equation names the engine that typeset it before its
+  LaTeX: "Typeset with RaTeX: …", or "Typeset with LaTeX (RaTeX could not
+  parse it): …" for a fallback picture. The tooltip is set when the image
+  is laid, from `latex-to-svg-backend-engine-used`; until then it shows the
+  LaTeX alone.
 
 ### Changed
 

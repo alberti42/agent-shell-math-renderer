@@ -289,6 +289,13 @@ section covers installing RaTeX and what changes with it.
 Each engine has its own cache entries. After changing the option, run
 `C-u M-x agent-shell-math-renderer-refresh` to re-render every buffer.
 
+Hovering over an equation shows which engine typeset it, then its LaTeX:
+
+```
+Typeset with RaTeX: E=mc^2
+Typeset with LaTeX (RaTeX could not parse it): \SI{3}{m}
+```
+
 What RaTeX does not typeset:
 
 - **Packages.** A command KaTeX does not have fails to compile: siunitx's
