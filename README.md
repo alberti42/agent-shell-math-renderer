@@ -324,6 +324,11 @@ you either install them or set the option to nil:
 
 With the option off, an equation RaTeX rejects keeps its raw text.
 
+The backend records a failed compile and does not try the equation again. To
+retry after a fix the cache cannot see, such as installing a missing TeX
+package or upgrading RaTeX, run `C-u M-x agent-shell-math-renderer-refresh`
+in the chat buffer: it recompiles that buffer's equations, bypassing the cache.
+
 #### Quiet failures
 
 The backend warns once per equation per buffer about an equation it cannot
@@ -355,9 +360,11 @@ automatically:
   equations for the current theme/appearance and font size. Equations already
   re-render lazily on theme, buffer-display, and zoom changes; this forces it
   now (and after a pure global font-size change). With a prefix argument
-  (`C-u M-x agent-shell-math-renderer-refresh`) it re-renders **every** buffer
-  with rendered equations. Setting an option with `setq`, `setq-local` or
-  Customize updates the equations on its own, with no refresh.
+  (`C-u M-x agent-shell-math-renderer-refresh`) it recompiles the equations
+  in the current buffer instead, bypassing the cache: the way to retry after
+  a fix the cache cannot see, such as installing a missing TeX package or
+  upgrading RaTeX. Setting an option with `setq`, `setq-local` or Customize
+  updates the equations on its own, with no refresh.
 
 ## Customization
 

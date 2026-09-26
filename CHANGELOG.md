@@ -15,9 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the math KaTeX supports, with no packages. It is passed to
   `latex-to-svg-backend` as `:engine`; an async compile's callback uses the
   engine the compile was scheduled with. Each engine has its own cache
-  entries. After changing it, run `C-u M-x
-  agent-shell-math-renderer-refresh`. The option is safe as a file- or
-  directory-local variable for its two values.
+  entries. The option is safe as a file- or directory-local variable for
+  its two values.
 - `agent-shell-math-renderer-fallback` (default t): when the engine is not
   `latex`, an equation it rejects, such as one using siunitx's `\SI`,
   `\DeclareMathOperator` or an environment RaTeX lacks, is typeset with LaTeX
@@ -45,7 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a change of the default value updates every buffer with equations, a
   buffer-local one that buffer, and a `let` nothing. The update runs from a
   timer, so several changes in one go update once. Before, each of these
-  options needed `C-u M-x agent-shell-math-renderer-refresh`.
+  options needed a refresh of every buffer.
+- `C-u M-x agent-shell-math-renderer-refresh` (RECOMPILE non-nil from Lisp)
+  recompiles the equations in the current buffer, bypassing the cache: the
+  way to retry after a fix the cache cannot see, such as installing a missing
+  TeX package or upgrading RaTeX. For each equation it calls
+  `latex-to-svg-backend-invalidate` with the engine, and with the fallback
+  engine when there is one, which also deletes the record of a failed
+  compile; then it renders the equation again.
 
 ### Changed
 
@@ -54,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same size and with the same glyphs. The cache key changes, so each
   display equation is compiled once more; the old entries expire through the
   backend's cache GC.
+- `C-u M-x agent-shell-math-renderer-refresh` recompiles the current buffer
+  (see Added) instead of refreshing every buffer with equations. The
+  every-buffer form existed for global option changes, which now update the
+  equations on their own. The second argument of
+  `agent-shell-math-renderer-refresh` is now RECOMPILE (was ALL).
 - In the documentation, "engine" now names the program that typesets an
   equation, LaTeX or RaTeX, and "backend" names `latex-to-svg-backend`. The
   released versions' entries below use "engine" for the backend, as they

@@ -985,6 +985,44 @@ is fixed, so no graphical frame is needed."
         (should calls)
         (should (eq 'ratex (plist-get (cdar calls) :engine)))))))
 
+(ert-deftest agent-shell-math-renderer-refresh-recompiles-with-prefix ()
+  ;; RECOMPILE (`C-u') invalidates each equation's string with the engine, and
+  ;; with the fallback too when there is one, then renders it again -- in the
+  ;; current buffer only.
+  (dolist (case '((latex t (latex))
+                  (ratex t (ratex latex))
+                  (ratex nil (ratex))))
+    (let ((invalidated '())
+          (rendered '())
+          (other (generate-new-buffer " other"))
+          (agent-shell-math-renderer-engine (nth 0 case))
+          (agent-shell-math-renderer-fallback (nth 1 case)))
+      (unwind-protect
+          (cl-letf (((symbol-function 'latex-to-svg-backend-invalidate)
+                     (lambda (doc &optional engine)
+                       (push (list doc engine) invalidated)))
+                    ((symbol-function 'agent-shell-math-renderer--render)
+                     (lambda (buffer _start _end latex &optional _inline)
+                       (push (cons buffer latex) rendered))))
+            (with-current-buffer other
+              (insert "zz")
+              (put-text-property 1 3 'agent-shell-math-renderer-source "z")
+              (setq agent-shell-math-renderer--present t))
+            (with-temp-buffer
+              (insert "display inline")
+              (put-text-property 1 8 'agent-shell-math-renderer-source "a")
+              (put-text-property 9 15 'agent-shell-math-renderer-source "b")
+              (put-text-property 9 15 'agent-shell-math-renderer-inline t)
+              (agent-shell-math-renderer-refresh nil t)
+              (should (equal (nreverse rendered)
+                             (list (cons (current-buffer) "a")
+                                   (cons (current-buffer) "b"))))))
+        (kill-buffer other))
+      (should (equal (nreverse invalidated)
+                     (append
+                      (mapcar (lambda (e) (list "\\[ a \\]" e)) (nth 2 case))
+                      (mapcar (lambda (e) (list "$b$" e)) (nth 2 case))))))))
+
 (ert-deftest agent-shell-math-renderer-refresh-passes-new-engine ()
   ;; A refresh after changing the option renders with the new engine.
   (agent-shell-math-renderer-tests--with-backend-calls calls

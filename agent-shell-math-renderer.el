@@ -905,6 +905,16 @@ which returns nil for a font it cannot open, and then signals
                 :warning))
              nil)))))))
 
+(defun agent-shell-math-renderer--wrap (latex &optional inline)
+  "Return LATEX wrapped as the string sent to the backend.
+That is `$LATEX$' when INLINE is non-nil, `\\=\\[ LATEX \\=\\]' otherwise.  The
+backend's cache key is a hash of this exact string, so
+`agent-shell-math-renderer--render' and a recompile by
+`agent-shell-math-renderer-refresh' both build it here."
+  (if inline
+      (format "$%s$" latex)
+    (format "\\[ %s \\]" latex)))
+
 (defun agent-shell-math-renderer--render (buffer start end latex &optional inline)
   "Render LATEX over BUFFER's START..END as an equation image.
 
@@ -918,11 +928,12 @@ streams in).  Does nothing when equations aren't renderable (see
 LATEX is the equation body with delimiters stripped; INLINE non-nil
 typesets it in text style, otherwise display style.  Since
 `latex-to-svg-backend' renders its argument *verbatim*, we wrap the body
-here into valid body LaTeX (`$body$' inline, `\\=\\[ body \\]' display)
-and pass that; the delimiters also choose inline vs display style, for
-either engine.  The engine is `agent-shell-math-renderer-engine' (via
-`:engine'), and its fallback is `agent-shell-math-renderer-fallback'
-\(via `:fallback', see `agent-shell-math-renderer--fallback-for'), and
+into valid body LaTeX (`$body$' inline, `\\=\\[ body \\]' display, see
+`agent-shell-math-renderer--wrap') and pass that; the delimiters also
+choose inline vs display style, for either engine.  The engine is
+`agent-shell-math-renderer-engine' (via `:engine'), and its fallback is
+`agent-shell-math-renderer-fallback' (via `:fallback', see
+`agent-shell-math-renderer--fallback-for'), and
 `agent-shell-math-renderer-quiet' is passed as `:quiet'; all three are
 read when the render is scheduled, so the callback of an async compile
 uses the values that compile ran with.  Color and size
@@ -943,9 +954,7 @@ backend defers sizing until the buffer is displayed (the display hook
 then re-renders)."
   (when (latex-to-svg-backend-available-p)
     (let* ((font-height (agent-shell-math-renderer--font-height buffer))
-           (doc (if inline
-                    (format "$%s$" latex)
-                  (format "\\[ %s \\]" latex)))
+           (doc (agent-shell-math-renderer--wrap latex inline))
            (engine agent-shell-math-renderer-engine)
            (fallback (agent-shell-math-renderer--fallback-for engine))
            (quiet agent-shell-math-renderer-quiet)
@@ -996,12 +1005,17 @@ then re-renders)."
                   (agent-shell-math-renderer--help-echo
                    doc latex engine fallback)))))))))))
 
-(defun agent-shell-math-renderer--refresh-buffer (buffer)
+(defun agent-shell-math-renderer--refresh-buffer (buffer &optional recompile)
   "Re-render every display-math region in BUFFER for the current colors.
 Each `agent-shell-math-renderer-source' region is handed back to
 `agent-shell-math-renderer--render', which recomputes the cache key
 \(so a foreground change yields a fresh image and an unchanged one
-is reused from cache)."
+is reused from cache).
+
+With RECOMPILE non-nil, first delete each region's cache entry with
+`latex-to-svg-backend-invalidate', for the engine and for its fallback
+when there is one, so the equation is compiled again.  That also
+deletes a failure record, so an engine that failed is tried again."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (save-excursion
@@ -1016,16 +1030,25 @@ is reused from cache)."
                   (end (or (next-single-property-change
                             pos 'agent-shell-math-renderer-source nil (point-max))
                            (point-max))))
+              (when recompile
+                (let* ((doc (agent-shell-math-renderer--wrap latex inline))
+                       (engine agent-shell-math-renderer-engine)
+                       (fallback (agent-shell-math-renderer--fallback-for
+                                  engine)))
+                  (latex-to-svg-backend-invalidate doc engine)
+                  (when fallback
+                    (latex-to-svg-backend-invalidate doc fallback))))
               (agent-shell-math-renderer--render buffer pos end latex inline)
               (setq pos end))))))))
 
-(defun agent-shell-math-renderer-refresh (&optional buffer all)
+(defun agent-shell-math-renderer-refresh (&optional buffer recompile)
   "Re-render displayed equations for the current colors and font.
-Re-render BUFFER, defaulting to the current buffer.  With ALL non-nil
-\(interactively, a prefix argument), re-render every buffer that has
-rendered equations instead.  Setting an option that affects the
-equations needs no refresh: see
-`agent-shell-math-renderer--watched-options'.
+Re-render BUFFER, defaulting to the current buffer.  With RECOMPILE
+non-nil (interactively, a prefix argument), recompile the equations in
+BUFFER instead, bypassing the cache: the way to retry after a fix the
+cache cannot see, such as installing a missing TeX package or upgrading
+RaTeX.  Setting an option that affects the equations needs no refresh:
+see `agent-shell-math-renderer--watched-options'.
 Call after a theme, appearance, or font-size change so equation images
 pick up the new colors and size.
 
@@ -1039,13 +1062,8 @@ new size just adds entries and a sibling buffer's warm images survive
 via `agent-shell-math-renderer--render', so unchanged buffers stay
 fast and untouched buffers refresh lazily when next displayed."
   (interactive (list nil current-prefix-arg))
-  (dolist (buf (if all
-                   (seq-filter
-                    (lambda (b)
-                      (buffer-local-value 'agent-shell-math-renderer--present b))
-                    (buffer-list))
-                 (list (or buffer (current-buffer)))))
-    (agent-shell-math-renderer--refresh-buffer buf)))
+  (agent-shell-math-renderer--refresh-buffer (or buffer (current-buffer))
+                                             recompile))
 
 (defconst agent-shell-math-renderer--watched-options
   '(agent-shell-math-renderer-engine
