@@ -322,7 +322,7 @@ you either install them or set the option to nil:
 (setq agent-shell-math-renderer-fallback nil)
 ```
 
-With the option off, an equation RaTeX rejects keeps its raw text.
+With the option off, an equation RaTeX rejects keeps its source as text.
 
 The backend records a failed compile and does not try the equation again. To
 retry after a fix the cache cannot see, such as installing a missing TeX
@@ -333,7 +333,8 @@ in the chat buffer: it recompiles that buffer's equations, bypassing the cache.
 
 The backend warns once per equation per buffer about an equation it cannot
 typeset, naming the buffer and linking to the log. To silence those warnings,
-set `agent-shell-math-renderer-quiet`; the equation then keeps its raw text.
+set `agent-shell-math-renderer-quiet`; the equation then keeps its source as
+text.
 Configuration problems, such as missing programs, still warn. Set it
 buffer-locally, in a mode hook or in `.dir-locals.el`, to silence one kind of
 chat.

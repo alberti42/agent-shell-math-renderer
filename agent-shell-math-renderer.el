@@ -239,7 +239,7 @@ it is: the stretch cannot pull it left."
 backend's preamble loads.  `ratex' runs RaTeX's `render-svg': no TeX
 installation, for the math KaTeX supports and no packages.  An
 equation RaTeX cannot parse is typeset with LaTeX instead, or keeps its
-raw text when `agent-shell-math-renderer-fallback' is nil.  Where the
+source as text when `agent-shell-math-renderer-fallback' is nil.  Where the
 programs are is set in the backend (see
 `latex-to-svg-backend-latex-program' and
 `latex-to-svg-backend-ratex-program').
@@ -269,7 +269,7 @@ Two consequences: a fallback equation is typeset in LaTeX's style
 shows which engine typeset it.  The fallback needs `latex'
 and `dvisvgm'; without them the backend warns, and you either install
 them or set this option to nil.  When nil, an equation the engine
-rejects keeps its raw text.  Setting it with `setq', `setq-local' or
+rejects keeps its source as text.  Setting it with `setq', `setq-local' or
 Customize updates the equations on its own."
   :type 'boolean
   :safe #'booleanp
@@ -288,10 +288,10 @@ ENGINE is not already `latex'."
 
 When nil (the default), the backend warns once per equation per buffer
 about an equation it cannot typeset, naming the buffer and linking to
-the log.  When non-nil, it does not; the equation keeps its raw text.
-Passed to `latex-to-svg-backend' as `:quiet'.  Configuration problems,
-such as missing programs, still warn.  Set it buffer-locally, in a mode
-hook or in `.dir-locals.el', to silence one kind of chat."
+the log.  When non-nil, it does not; the equation keeps its source as
+text.  Passed to `latex-to-svg-backend' as `:quiet'.  Configuration
+problems, such as missing programs, still warn.  Set it buffer-locally,
+in a mode hook or in `.dir-locals.el', to silence one kind of chat."
   :type 'boolean
   :safe #'booleanp
   :group 'agent-shell-math-renderer)
