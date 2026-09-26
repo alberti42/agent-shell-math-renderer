@@ -410,6 +410,35 @@ placeholder / non-graphic behaviour) live in the
 The `agent-shell-math-renderer` face styles the raw LaTeX shown on a
 non-graphical display (behind the image on a graphical one).
 
+### Changing an option
+
+These options update the equations on their own when you set them, with
+`setq`, `setq-local`, `.dir-locals.el` or Customize:
+
+| Option | What is redone |
+|--------|----------------|
+| `agent-shell-math-renderer-engine` | the equations are typeset again with the new engine |
+| `agent-shell-math-renderer-fallback` | the equations RaTeX rejected are typeset again, or left as text |
+| `agent-shell-math-renderer-foreground-color`, `-background-color`, `-padding` | the pictures are redrawn from cache |
+| `agent-shell-math-renderer-inline-rescale`, `-display-rescale` | the pictures are redrawn from cache |
+| `agent-shell-math-renderer-center-display-math` | the pictures are redrawn from cache |
+
+Where the change applies depends on how you make it:
+
+- **A global value** (`setq` of a variable with no buffer-local value,
+  `setq-default`, Customize) updates **every open chat** with equations.
+- **A buffer-local value** (`setq-local`, or `.dir-locals.el`, which a chat
+  started in a project inherits) updates only that chat.
+- **A `let`-binding** updates nothing.
+
+Redrawing from cache is instant. A new engine typesets from cache every
+equation it has compiled before; the others compile, in about 6 ms each with
+RaTeX and about 300 ms each with LaTeX. So to try LaTeX in one chat without
+re-typesetting every other one, set the engine buffer-locally in that chat:
+`M-: (setq-local agent-shell-math-renderer-engine 'latex)`.
+
+Other options apply to equations rendered afterwards.
+
 ## How it works
 
 - The package adds `agent-shell-math-renderer--render-hook` to
