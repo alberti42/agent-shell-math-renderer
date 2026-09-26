@@ -68,10 +68,11 @@
 ;; content, tinted and scaled at display time).  Compilation is
 ;; asynchronous; the image is overlaid when ready.  When the toolchain is
 ;; absent or `latex-to-svg-backend-use-placeholder' is set, a placeholder panel
-;; boxing the raw LaTeX is shown instead.  Rendering-engine settings
-;; (LaTeX/dvisvgm programs, preamble, cache directory, font scale,
-;; placeholder / non-graphic behaviour) live in the `latex-to-svg-backend-*'
-;; customization group.
+;; boxing the raw LaTeX is shown instead.  The engine that typesets
+;; (LaTeX, or RaTeX without a TeX installation) is chosen by
+;; `agent-shell-math-renderer-engine'.  Backend settings (programs,
+;; preamble, cache directory, font scale, placeholder / non-graphic
+;; behaviour) live in the `latex-to-svg-backend-*' customization group.
 
 ;;; Code:
 
@@ -87,9 +88,10 @@
 (defgroup agent-shell-math-renderer nil
   "Render LaTeX math in agent-shell's streamed markdown output.
 Display equations (`\\=\\[...\\]', `$$...$$', and ```math fences) and
-inline `\\(...\\)' are compiled to SVG with
-`latex' + `dvisvgm' and overlaid on the raw LaTeX (kept in the
-buffer so copy/save round-trips the source)."
+inline `\\(...\\)' are compiled to SVG, by `latex' + `dvisvgm' or
+by RaTeX (see `agent-shell-math-renderer-engine'), and overlaid on
+the raw LaTeX (kept in the buffer so copy/save round-trips the
+source)."
   :group 'agent-shell
   :prefix "agent-shell-math-renderer-")
 
@@ -190,7 +192,7 @@ Set to nil to leave every fence as code."
 
 Only effective when the master switch
 `agent-shell-math-renderer-enabled' is non-nil.  Inline math is
-typeset in text style (no `\\displaystyle') and overlaid in place,
+typeset in text style and overlaid in place,
 so it sits within the surrounding line rather than on its own.
 
 Unlike the block-level delimiters, `\\(...\\)' is matched anywhere
@@ -231,9 +233,30 @@ it is: the stretch cannot pull it left."
   :safe #'booleanp
   :group 'agent-shell-math-renderer)
 
+(defcustom agent-shell-math-renderer-engine 'latex
+  "Engine that typesets the equations: `latex' or `ratex'.
+
+`latex' runs `latex' and `dvisvgm': full LaTeX, with any package the
+backend's preamble loads.  `ratex' runs RaTeX's `render-svg': no TeX
+installation, for the math KaTeX supports and no packages.  An
+equation RaTeX cannot parse keeps its raw text, and the backend warns
+once for it.  Where the programs are is set in the backend (see
+`latex-to-svg-backend-latex-program' and
+`latex-to-svg-backend-ratex-program').
+
+Passed to `latex-to-svg-backend' as `:engine'.  Each engine has its
+own cache entries, so switching back and forth does not recompile an
+equation already compiled by both.  After changing it, run
+`agent-shell-math-renderer-refresh' to apply (with a prefix argument
+to apply in every buffer at once)."
+  :type '(choice (const :tag "LaTeX (latex + dvisvgm)" latex)
+                 (const :tag "RaTeX (render-svg)" ratex))
+  :safe (lambda (v) (memq v '(latex ratex)))
+  :group 'agent-shell-math-renderer)
+
 (defcustom agent-shell-math-renderer-inline-rescale 1.0
   "Size multiplier for inline math previews (`\\(...\\)').
-Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
+Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by'.  Re-scales from cache (no recompile);
 after changing it, run `agent-shell-math-renderer-refresh' to apply (with a
 prefix argument to apply in every buffer at once)."
@@ -244,7 +267,7 @@ prefix argument to apply in every buffer at once)."
 (defcustom agent-shell-math-renderer-display-rescale 1.0
   "Size multiplier for display math previews.
 Applies to `\\=\\[...\\]', `$$...$$', and fenced math blocks.
-Applied on top of the engine's global `latex-to-svg-backend-font-scale' via
+Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by' — e.g. set to 1.1 for display equations a
 touch larger than inline.  Re-scales from cache (no recompile); after
 changing it, run `agent-shell-math-renderer-refresh' to apply (with a
@@ -304,7 +327,7 @@ against the box edge, and scales with the equation.  Either a
 number of pt (e.g. 3) applied to all four sides, or a list of four
 numbers (TOP RIGHT BOTTOM LEFT) to pad each side separately -- so
 a left gutter and nothing else is (0 0 0 6).  nil or 0 crops the
-box to the ink.  Set from Lisp, the shorter CSS forms the engine
+box to the ink.  Set from Lisp, the shorter CSS forms the backend
 accepts work too (one, two or three numbers: see
 `latex-to-svg-backend'), but Customize offers only the number and
 the four-side list.
@@ -328,7 +351,7 @@ to apply in every buffer at once)."
                        (number :tag "Bottom")
                        (number :tag "Left  ")))
   ;; A file-local value is hand-written Lisp, so accept every shape the
-  ;; engine does (1-4 numbers), not just the two Customize offers.
+  ;; backend does (1-4 numbers), not just the two Customize offers.
   :safe (lambda (v) (or (null v) (numberp v)
                         (and (consp v) (<= 1 (length v) 4)
                              (seq-every-p #'numberp v))))
@@ -815,8 +838,12 @@ streams in).  Does nothing when equations aren't renderable (see
 LATEX is the equation body with delimiters stripped; INLINE non-nil
 typesets it in text style, otherwise display style.  Since
 `latex-to-svg-backend' renders its argument *verbatim*, we wrap the body
-here into valid body LaTeX (`$body$' inline, `$\\displaystyle body$'
-display) and pass that.  Color and size are not baked in —
+here into valid body LaTeX (`$body$' inline, `\\=\\[ body \\]' display)
+and pass that; the delimiters also choose inline vs display style, for
+either engine.  The engine is `agent-shell-math-renderer-engine' (via
+`:engine'), read when the render is scheduled, so the callback of an
+async compile uses the engine that compile ran with.  Color and size
+are not baked in —
 `latex-to-svg-backend' tints the color-independent SVG to the buffer
 foreground and scales it to the buffer font at display time, the
 latter by `agent-shell-math-renderer-inline-rescale' /
@@ -835,14 +862,16 @@ then re-renders)."
     (let* ((font-height (agent-shell-math-renderer--font-height buffer))
            (doc (if inline
                     (format "$%s$" latex)
-                  (format "$\\displaystyle %s$" latex)))
+                  (format "\\[ %s \\]" latex)))
+           (engine agent-shell-math-renderer-engine)
            (rescale (if inline
                         agent-shell-math-renderer-inline-rescale
                       agent-shell-math-renderer-display-rescale))
            (color agent-shell-math-renderer-foreground-color)
            (background agent-shell-math-renderer-background-color)
            (padding agent-shell-math-renderer-padding)
-           (image (latex-to-svg-backend doc :rescale-by rescale :color color
+           (image (latex-to-svg-backend doc :engine engine
+                                        :rescale-by rescale :color color
                                         :background background :padding padding
                                         :font-height font-height)))
       ;; Record the appearance (colors + font height) this render is for,
@@ -860,7 +889,7 @@ then re-renders)."
               (e (copy-marker end)))
           (latex-to-svg-backend
            doc
-           :rescale-by rescale :color color
+           :engine engine :rescale-by rescale :color color
            :background background :padding padding :font-height font-height
            :callback
            (lambda ()
@@ -871,7 +900,7 @@ then re-renders)."
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
                   (latex-to-svg-backend
-                   doc :rescale-by rescale :color color
+                   doc :engine engine :rescale-by rescale :color color
                    :background background :padding padding
                    :font-height (agent-shell-math-renderer--font-height buffer))
                   inline))))))))))
@@ -904,7 +933,8 @@ is reused from cache)."
 Re-render BUFFER, defaulting to the current buffer.  With ALL non-nil
 \(interactively, a prefix argument), re-render every buffer that has
 rendered equations instead — for a global change no appearance check
-can see, such as setting `agent-shell-math-renderer-foreground-color'.
+can see, such as setting `agent-shell-math-renderer-foreground-color'
+or `agent-shell-math-renderer-engine'.
 Call after a theme, appearance, or font-size change so equation images
 pick up the new colors and size.
 

@@ -9,7 +9,7 @@
 
 Render LaTeX math in [`agent-shell`](https://github.com/xenodium/agent-shell)'s
 streamed markdown output. Display equations and inline math in an agent's
-response are compiled with `latex` → `dvisvgm` and shown as crisp,
+response are compiled with `latex` → `dvisvgm`, or with RaTeX, and shown as crisp,
 theme-matched SVG images — while the original LaTeX stays in the buffer, so
 copy and save round-trip renderable source.
 
@@ -72,12 +72,13 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
   suppression the hook relies on)
 - **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.9.0
   or newer — the
-  rendering engine (equation compile, caching, display-time tint/scale) is
+  backend (equation compile, caching, display-time tint/scale) is
   factored out into this standalone library. All typesetting knobs (LaTeX /
-  dvisvgm programs, preamble, cache directory, font scale, placeholder /
+  dvisvgm / RaTeX programs, preamble, cache directory, font scale, placeholder /
   non-graphic behaviour) live in its `latex-to-svg-backend-*` customization group.
 - A **LaTeX toolchain** providing `latex` and `dvisvgm` (e.g. TeX Live /
-  MacTeX; `dvisvgm` ships with TeX Live). Without it, equations fall back to a
+  MacTeX; `dvisvgm` ships with TeX Live), or RaTeX's `render-svg` for the
+  `ratex` engine (see [Engine](#engine)). Without it, equations fall back to a
   bordered placeholder or the raw LaTeX text.
 - An Emacs build with **SVG support** for the images (raw LaTeX is shown
   otherwise).
@@ -90,7 +91,7 @@ advice. With agent-shell's default (in-place) renderer, math renders
 automatically once installed.
 
 > **Dependencies:** [`agent-shell`](https://melpa.org/#/agent-shell) and the
-> rendering engine
+> backend
 > [`latex-to-svg-backend`](https://melpa.org/#/latex-to-svg-backend) are on
 > MELPA too and arrive through the `Package-Requires` header — nothing to
 > install separately.
@@ -238,9 +239,10 @@ minor mode from `.dir-locals.el` uses an `eval` entry:
 Emacs will ask once to confirm the `eval` (or mark it safe).
 
 The same works for the other side-effect-free options (`-delimiters`,
-`-fence-languages`, `-render-inline`, `-inline-rescale`, `-display-rescale`,
-the color/box options, and the engine's `latex-to-svg-backend-font-scale`).
-The engine's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
+`-fence-languages`, `-render-inline`, `-engine`, `-inline-rescale`,
+`-display-rescale`, the color/box options, and the backend's
+`latex-to-svg-backend-font-scale`).
+The backend's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
 `-dvisvgm-program`, `-preamble`, `-appended-preamble`, `-cache-directory`) are
 **not** marked safe — a `.dir-locals.el` lives inside the repo, and those feed a
 compiler or run a program, so Emacs will ask before applying them.
@@ -263,6 +265,40 @@ render. If yours does, add an instruction to its prompt or project rules:
 
 (Display math — `\[…\]`, `$$…$$`, and ```` ```math ```` fences — is unaffected;
 this tip is only about *inline* math.)
+
+### Engine
+
+`agent-shell-math-renderer-engine` chooses the program that typesets the
+equations:
+
+| Value | Program | Typesets |
+|-------|---------|----------|
+| `latex` (default) | `latex` + `dvisvgm` | Full LaTeX, with any package the backend's preamble loads. |
+| `ratex` | RaTeX's `render-svg` | The math KaTeX supports, with no packages and no TeX installation. |
+
+The choice is passed to the backend with each equation. Where the programs
+are is a backend setting (`latex-to-svg-backend-latex-program`,
+`latex-to-svg-backend-ratex-program`); the backend README's
+[Engines](https://github.com/alberti42/latex-to-svg-backend#engines)
+section covers installing RaTeX and what changes with it.
+
+```elisp
+(setq agent-shell-math-renderer-engine 'ratex)
+```
+
+Each engine has its own cache entries. After changing the option, run
+`C-u M-x agent-shell-math-renderer-refresh` to re-render every buffer.
+
+What RaTeX does not typeset:
+
+- **Packages.** A command KaTeX does not have fails to compile: siunitx's
+  `\SI` and `\unit`, `\DeclareMathOperator` (use `\operatorname`), and any
+  package in `latex-to-svg-backend-appended-preamble`, which RaTeX does not
+  read. Define macros in `latex-to-svg-backend-ratex-macros` instead.
+- **Environments KaTeX does not have**, such as `multline` and `eqnarray`.
+
+An equation RaTeX cannot parse keeps its raw text, and the backend warns once
+for it, with a link to RaTeX's output.
 
 ### Extra LaTeX packages
 
@@ -300,14 +336,15 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math")` | Fenced-code languages rendered as display math. Add `"latex"`/`"tex"` if your agent emits display math under those tags; `nil` leaves every fence as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
-| `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the engine's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-engine` | `latex` | Engine that typesets the equations: `latex` (`latex` + `dvisvgm`) or `ratex` (RaTeX's `render-svg`). See [Engine](#engine). Run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the backend's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-center-display-math` | `nil` | Center display-math equations in the window (inline math is never centered). Replaces agent-shell's indentation on that line, since the position is measured from the window. Run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-padding` | `nil` | Padding (pt) between the equation and the box edge. A number applies to all four sides; a list of four numbers pads each side separately — `(TOP RIGHT BOTTOM LEFT)`, so `(0 0 0 6)` is a left gutter. `nil`/`0` crops to the ink. Re-renders from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 
-The **rendering-engine** options (equation size, toolchain, preamble, caching,
+The **backend** options (equation size, toolchain, preamble, caching,
 placeholder / non-graphic behaviour) live in the
 [`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend) group
 (`M-x customize-group RET latex-to-svg-backend`):
@@ -334,8 +371,9 @@ non-graphical display (behind the image on a graphical one).
   markdown-specific work: detecting delimiters / inline / fenced math, the
   streaming watermark, and placing the image (via a `display` text property).
 - Typesetting is delegated to [`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend):
-  each equation is compiled by a standalone LaTeX document → DVI (`latex`) →
-  SVG (`dvisvgm --no-fonts --exact-bbox --currentcolor`). Compilation is
+  with the `latex` engine each equation is compiled by a standalone LaTeX
+  document → DVI (`latex`) → SVG (`dvisvgm --no-fonts --exact-bbox
+  --currentcolor`); with `ratex`, by RaTeX's `render-svg`. Compilation is
   **asynchronous** and off the output path, so its latency is masked by the
   agent's own streaming.
 - The SVG is **cached on disk** keyed by content (LaTeX + preamble + style), so

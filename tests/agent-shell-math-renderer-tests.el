@@ -27,7 +27,7 @@
              (expand-file-name ".." (file-name-directory
                                      (or load-file-name buffer-file-name))))
 
-;; `latex-to-svg-backend' (the extracted rendering engine, a hard dependency of the
+;; `latex-to-svg-backend' (the backend, a hard dependency of the
 ;; renderer) is a sibling repo; add it to `load-path' so the module's
 ;; `(require 'latex-to-svg-backend)' resolves when running the suite from a checkout.
 ;; Override the location with LATEX_TO_SVG_DIR for other layouts.
@@ -795,9 +795,9 @@ after text.
   (let ((agent-shell-math-renderer-background-padding '(0 0 0 6)))
     (should (equal agent-shell-math-renderer-padding '(0 0 0 6)))))
 
-(ert-deftest agent-shell-math-renderer-padding-safe-matches-the-engine ()
+(ert-deftest agent-shell-math-renderer-padding-safe-matches-the-backend ()
   ;; A file-local padding is hand-written Lisp, so the `:safe' predicate
-  ;; accepts every shape the engine takes (1-4 numbers) and nothing else --
+  ;; accepts every shape the backend takes (1-4 numbers) and nothing else --
   ;; a value Customize cannot express must still not need a y/n prompt.
   (let ((safe (get 'agent-shell-math-renderer-padding 'safe-local-variable)))
     (should safe)
@@ -805,6 +805,81 @@ after text.
       (should (funcall safe ok)))
     (dolist (bad (list "3" '(1 2 3 4 5) '(1 "2") 'x))
       (should-not (funcall safe bad)))))
+
+(defmacro agent-shell-math-renderer-tests--with-backend-calls (var &rest body)
+  "Evaluate BODY with `latex-to-svg-backend' stubbed, recording into VAR.
+Each call pushes (LATEX . KEYS) onto VAR and returns nil, so every
+render takes the async path.  Nothing is overlaid, and the font height
+is fixed, so no graphical frame is needed."
+  (declare (indent 1) (debug t))
+  `(let ((,var '()))
+     (cl-letf (((symbol-function 'latex-to-svg-backend-available-p) #'always)
+               ((symbol-function 'agent-shell-math-renderer--font-height)
+                (lambda (&rest _) 20))
+               ((symbol-function 'latex-to-svg-backend-appearance) #'ignore)
+               ((symbol-function 'agent-shell-math-renderer--overlay-image)
+                #'ignore)
+               ((symbol-function 'latex-to-svg-backend)
+                (lambda (latex &rest keys)
+                  (push (cons latex keys) ,var)
+                  nil)))
+       ,@body)))
+
+(ert-deftest agent-shell-math-renderer-engine-passed-to-every-backend-call ()
+  ;; The first request, the scheduled compile and the callback's re-query all
+  ;; pass `:engine'.  The callback uses the engine captured at scheduling, so
+  ;; changing the option while the compile runs does not change it.
+  (agent-shell-math-renderer-tests--with-backend-calls calls
+    (with-temp-buffer
+      (insert "xx")
+      (let ((agent-shell-math-renderer-engine 'ratex))
+        (agent-shell-math-renderer--render
+         (current-buffer) (point-min) (point-max) "x"))
+      (should (= 2 (length calls)))
+      (let ((callback (plist-get (cdar calls) :callback))
+            (agent-shell-math-renderer-engine 'latex))
+        (funcall callback))
+      (should (= 3 (length calls)))
+      (dolist (call calls)
+        (should (eq 'ratex (plist-get (cdr call) :engine)))))))
+
+(ert-deftest agent-shell-math-renderer-refresh-passes-new-engine ()
+  ;; A refresh after changing the option renders with the new engine.
+  (agent-shell-math-renderer-tests--with-backend-calls calls
+    (with-temp-buffer
+      (insert "xx")
+      (put-text-property (point-min) (point-max)
+                         'agent-shell-math-renderer-source "x")
+      (let ((agent-shell-math-renderer-engine 'latex))
+        (agent-shell-math-renderer--refresh-buffer (current-buffer)))
+      (should (eq 'latex (plist-get (cdar calls) :engine)))
+      (setq calls nil)
+      (let ((agent-shell-math-renderer-engine 'ratex))
+        (agent-shell-math-renderer--refresh-buffer (current-buffer)))
+      (should calls)
+      (dolist (call calls)
+        (should (eq 'ratex (plist-get (cdr call) :engine)))))))
+
+(ert-deftest agent-shell-math-renderer-wraps-display-and-inline-math ()
+  ;; Display math is passed as `\[ body \]', inline math as `$body$'.
+  (agent-shell-math-renderer-tests--with-backend-calls calls
+    (with-temp-buffer
+      (insert "xx")
+      (agent-shell-math-renderer--render
+       (current-buffer) (point-min) (point-max) "a+b")
+      (should (equal "\\[ a+b \\]" (caar calls)))
+      (setq calls nil)
+      (agent-shell-math-renderer--render
+       (current-buffer) (point-min) (point-max) "a+b" t)
+      (should (equal "$a+b$" (caar calls))))))
+
+(ert-deftest agent-shell-math-renderer-engine-safe-values ()
+  ;; A file-local engine is safe for the two engines and nothing else.
+  (let ((safe (get 'agent-shell-math-renderer-engine 'safe-local-variable)))
+    (should (funcall safe 'latex))
+    (should (funcall safe 'ratex))
+    (should-not (funcall safe nil))
+    (should-not (funcall safe 'pdflatex))))
 
 (ert-deftest agent-shell-math-renderer-text-scale-wired-to-refresh ()
   ;; A buffer zoom (`text-scale-adjust') fires `text-scale-mode-hook' but

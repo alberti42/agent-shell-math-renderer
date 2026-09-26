@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `agent-shell-math-renderer-engine` (default `latex`) chooses the engine
+  that typesets the equations: `latex` runs `latex` and `dvisvgm`, `ratex`
+  runs RaTeX's `render-svg`, which needs no TeX installation and typesets
+  the math KaTeX supports, with no packages. It is passed to
+  `latex-to-svg-backend` as `:engine`; an async compile's callback uses the
+  engine the compile was scheduled with. Each engine has its own cache
+  entries. After changing it, run `C-u M-x
+  agent-shell-math-renderer-refresh`. The option is safe as a file- or
+  directory-local variable for its two values.
+
+### Changed
+
+- Display math is passed to the backend as `\[ body \]` instead of
+  `$\displaystyle body$`. The backend's `varwidth` preamble typesets both at
+  the same size and with the same glyphs. The cache key changes, so each
+  display equation is compiled once more; the old entries expire through the
+  backend's cache GC.
+- In the documentation, "engine" now names the program that typesets an
+  equation, LaTeX or RaTeX, and "backend" names `latex-to-svg-backend`. The
+  released versions' entries below use "engine" for the backend, as they
+  were written.
+
 ## [0.10.0] - 2026-09-09
 
 ### Added
