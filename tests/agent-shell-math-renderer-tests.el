@@ -455,6 +455,26 @@ E=mc^2
     (should (equal (nreverse calls)
                    '((1 6 "A") (15 21 "B"))))))
 
+(ert-deftest agent-shell-math-renderer-help-echo-shows-latex-as-written ()
+  ;; Emacs passes `help-echo' through `substitute-command-keys', which read
+  ;; `\{' as a keymap and curved the apostrophe of `f'(x)'.  Compare after
+  ;; that function, since that is what the user reads; the source property
+  ;; stays unquoted.
+  (agent-shell-math-renderer-tests--enabled
+    (dolist (case '(("a \\(\\{ x \\}\\) b" . "\\{ x \\}")
+                    ("a \\(f'(x)\\) b" . "f'(x)")
+                    ("\\[ \\sum_i x_i \\]" . "\\sum_i x_i")))
+      (let* ((out (agent-shell-markdown-convert (car case)))
+             (pos (text-property-not-all
+                   0 (length out) 'agent-shell-math-renderer-source nil out)))
+        (should pos)
+        (should (equal (cdr case)
+                       (get-text-property
+                        pos 'agent-shell-math-renderer-source out)))
+        (should (equal (cdr case)
+                       (substitute-command-keys
+                        (get-text-property pos 'help-echo out))))))))
+
 (ert-deftest agent-shell-math-renderer-inline-math-protects-markup ()
   ;; Inline `\\(...\\)' is matched anywhere on a line (not just block
   ;; level) and faced `agent-shell-math-renderer', keeping its interior

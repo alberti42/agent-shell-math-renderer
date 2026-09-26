@@ -234,7 +234,7 @@ it is: the stretch cannot pull it left."
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-engine 'latex
-  "Engine that typesets the equations: `latex' or `ratex'.
+  "Engine that typesets the equations: the symbol `latex' or `ratex'.
 
 `latex' runs `latex' and `dvisvgm': full LaTeX, with any package the
 backend's preamble loads.  `ratex' runs RaTeX's `render-svg': no TeX
@@ -716,6 +716,16 @@ empty (a fence with no info string), which is not a math language."
        (member (downcase lang) agent-shell-math-renderer-fence-languages)
        t))
 
+(defun agent-shell-math-renderer--help-echo-text (latex)
+  "Return LATEX quoted so that `help-echo' shows it as written.
+Emacs passes a `help-echo' string through `substitute-command-keys'
+before showing it, which reads `\\=\\[' as the start of a key reference,
+`\\=\\{' as a keymap, and turns quotes into curved ones: `\\=\\[x=1\\=\\]'
+would show as the key binding of a command named \"x=1\\\".  A `\\=\\='
+before each backslash, backquote and apostrophe makes
+`substitute-command-keys' copy it literally."
+  (replace-regexp-in-string "[\\`']" "\\\\=\\&" latex))
+
 (defun agent-shell-math-renderer--apply-region (buffer start end latex &optional inline)
   "Mark BUFFER's START..END as math with source LATEX and render it.
 
@@ -743,7 +753,7 @@ the bare equation."
     (add-face-text-property start end 'agent-shell-math-renderer)
     (add-text-properties
      start end
-     `(help-echo ,latex
+     `(help-echo ,(agent-shell-math-renderer--help-echo-text latex)
                  agent-shell-math-renderer-source ,latex
                  agent-shell-math-renderer-inline ,inline
                  agent-shell-markdown-frozen t

@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   released versions' entries below use "engine" for the backend, as they
   were written.
 
+### Fixed
+
+- Hovering over an equation shows its LaTeX as written. Emacs passes a
+  `help-echo` string through `substitute-command-keys`, which read `\[` as
+  the start of a key reference and `\{` as a keymap, and turned quotes into
+  curved ones, so `\{ x \}` showed as "Uses keymap ‘ x \’, which is not
+  currently defined" and `f'(x)` as "f’(x)". The `help-echo` now puts `\=`
+  before each backslash, backquote and apostrophe, which
+  `substitute-command-keys` copies literally.
+
 ## [0.10.0] - 2026-09-09
 
 ### Added
