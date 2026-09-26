@@ -239,7 +239,7 @@ minor mode from `.dir-locals.el` uses an `eval` entry:
 Emacs will ask once to confirm the `eval` (or mark it safe).
 
 The same works for the other side-effect-free options (`-delimiters`,
-`-fence-languages`, `-render-inline`, `-engine`, `-inline-rescale`,
+`-fence-languages`, `-render-inline`, `-engine`, `-fallback`, `-inline-rescale`,
 `-display-rescale`, the color/box options, and the backend's
 `latex-to-svg-backend-font-scale`).
 The backend's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
@@ -297,8 +297,25 @@ What RaTeX does not typeset:
   read. Define macros in `latex-to-svg-backend-ratex-macros` instead.
 - **Environments KaTeX does not have**, such as `multline` and `eqnarray`.
 
-An equation RaTeX cannot parse keeps its raw text, and the backend warns once
-for it, with a link to RaTeX's output.
+#### Falling back to LaTeX
+
+With `agent-shell-math-renderer-fallback` on (the default), an equation RaTeX
+rejects is typeset with LaTeX instead. The backend records the failure, so a
+later request goes straight to the LaTeX picture in the cache. Two
+consequences:
+
+- A fallback equation is typeset in LaTeX's style (Computer Modern) next to
+  RaTeX's (KaTeX's fonts).
+- It takes about 300 ms to compile instead of about 6 ms.
+
+The fallback needs `latex` and `dvisvgm`; without them the backend warns, and
+you either install them or set the option to nil:
+
+```elisp
+(setq agent-shell-math-renderer-fallback nil)
+```
+
+With the option off, an equation RaTeX rejects keeps its raw text.
 
 ### Extra LaTeX packages
 
@@ -337,6 +354,7 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-fence-languages` | `("math")` | Fenced-code languages rendered as display math. Add `"latex"`/`"tex"` if your agent emits display math under those tags; `nil` leaves every fence as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
 | `agent-shell-math-renderer-engine` | `latex` | Engine that typesets the equations: `latex` (`latex` + `dvisvgm`) or `ratex` (RaTeX's `render-svg`). See [Engine](#engine). Run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
+| `agent-shell-math-renderer-fallback` | `t` | Typeset with LaTeX an equation the engine rejects, when the engine is not `latex`. See [Falling back to LaTeX](#falling-back-to-latex). |
 | `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the backend's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |

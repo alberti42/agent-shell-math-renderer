@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entries. After changing it, run `C-u M-x
   agent-shell-math-renderer-refresh`. The option is safe as a file- or
   directory-local variable for its two values.
+- `agent-shell-math-renderer-fallback` (default t): when the engine is not
+  `latex`, an equation it rejects, such as one using siunitx's `\SI`,
+  `\DeclareMathOperator` or an environment RaTeX lacks, is typeset with LaTeX
+  instead. It is passed to `latex-to-svg-backend` as `:fallback`, and the
+  callback of an async compile uses the value read when the compile was
+  scheduled. A fallback equation is typeset in LaTeX's style (Computer
+  Modern) next to RaTeX's (KaTeX's fonts), and takes about 300 ms to compile
+  instead of about 6 ms. The fallback needs `latex` and `dvisvgm`. With the
+  option off, an equation the engine rejects keeps its raw text.
 
 ### Changed
 

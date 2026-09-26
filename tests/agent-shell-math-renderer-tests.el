@@ -863,6 +863,37 @@ is fixed, so no graphical frame is needed."
       (dolist (call calls)
         (should (eq 'ratex (plist-get (cdr call) :engine)))))))
 
+(ert-deftest agent-shell-math-renderer-fallback-per-engine ()
+  ;; `:fallback' is `latex' for `ratex', nil for `latex', and nil with the
+  ;; option off, at every call.
+  (dolist (case '((ratex t latex) (latex t nil) (ratex nil nil)))
+    (agent-shell-math-renderer-tests--with-backend-calls calls
+      (with-temp-buffer
+        (insert "xx")
+        (let ((agent-shell-math-renderer-engine (nth 0 case))
+              (agent-shell-math-renderer-fallback (nth 1 case)))
+          (agent-shell-math-renderer--render
+           (current-buffer) (point-min) (point-max) "x"))
+        (should (= 2 (length calls)))
+        (dolist (call calls)
+          (should (eq (nth 2 case) (plist-get (cdr call) :fallback))))))))
+
+(ert-deftest agent-shell-math-renderer-fallback-captured-at-scheduling ()
+  ;; The callback's call uses the fallback read when the compile was
+  ;; scheduled, not the option's value when the compile finishes.
+  (agent-shell-math-renderer-tests--with-backend-calls calls
+    (with-temp-buffer
+      (insert "xx")
+      (let ((agent-shell-math-renderer-engine 'ratex)
+            (agent-shell-math-renderer-fallback t))
+        (agent-shell-math-renderer--render
+         (current-buffer) (point-min) (point-max) "x"))
+      (let ((callback (plist-get (cdar calls) :callback))
+            (agent-shell-math-renderer-fallback nil))
+        (funcall callback))
+      (should (= 3 (length calls)))
+      (should (eq 'latex (plist-get (cdar calls) :fallback))))))
+
 (ert-deftest agent-shell-math-renderer-refresh-passes-new-engine ()
   ;; A refresh after changing the option renders with the new engine.
   (agent-shell-math-renderer-tests--with-backend-calls calls

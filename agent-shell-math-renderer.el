@@ -239,8 +239,9 @@ it is: the stretch cannot pull it left."
 `latex' runs `latex' and `dvisvgm': full LaTeX, with any package the
 backend's preamble loads.  `ratex' runs RaTeX's `render-svg': no TeX
 installation, for the math KaTeX supports and no packages.  An
-equation RaTeX cannot parse keeps its raw text, and the backend warns
-once for it.  Where the programs are is set in the backend (see
+equation RaTeX cannot parse is typeset with LaTeX instead, or keeps its
+raw text when `agent-shell-math-renderer-fallback' is nil.  Where the
+programs are is set in the backend (see
 `latex-to-svg-backend-latex-program' and
 `latex-to-svg-backend-ratex-program').
 
@@ -253,6 +254,34 @@ to apply in every buffer at once)."
                  (const :tag "RaTeX (render-svg)" ratex))
   :safe (lambda (v) (memq v '(latex ratex)))
   :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-fallback t
+  "Whether LaTeX typesets an equation the chosen engine cannot.
+
+When non-nil and `agent-shell-math-renderer-engine' is not `latex', a
+formula that engine rejects, such as one using siunitx's `\\SI',
+`\\DeclareMathOperator' or an environment RaTeX lacks, is typeset with
+LaTeX instead: passed to `latex-to-svg-backend' as `:fallback'.  The
+backend records the failure, so a later request goes straight to the
+LaTeX picture in the cache.
+
+Two consequences: a fallback equation is typeset in LaTeX's style
+\(Computer Modern) next to RaTeX's (KaTeX's fonts), and it takes about
+300 ms to compile instead of about 6 ms.  The fallback needs `latex'
+and `dvisvgm'; without them the backend warns, and you either install
+them or set this option to nil.  When nil, an equation the engine
+rejects keeps its raw text."
+  :type 'boolean
+  :safe #'booleanp
+  :group 'agent-shell-math-renderer)
+
+(defun agent-shell-math-renderer--fallback-for (engine)
+  "Return the fallback engine for an equation typeset by ENGINE, or nil.
+That is `latex' when `agent-shell-math-renderer-fallback' is on and
+ENGINE is not already `latex'."
+  (and agent-shell-math-renderer-fallback
+       (not (memq engine '(nil latex)))
+       'latex))
 
 (defcustom agent-shell-math-renderer-inline-rescale 1.0
   "Size multiplier for inline math previews (`\\(...\\)').
@@ -851,8 +880,10 @@ typesets it in text style, otherwise display style.  Since
 here into valid body LaTeX (`$body$' inline, `\\=\\[ body \\]' display)
 and pass that; the delimiters also choose inline vs display style, for
 either engine.  The engine is `agent-shell-math-renderer-engine' (via
-`:engine'), read when the render is scheduled, so the callback of an
-async compile uses the engine that compile ran with.  Color and size
+`:engine'), and its fallback is `agent-shell-math-renderer-fallback'
+\(via `:fallback', see `agent-shell-math-renderer--fallback-for'); both
+are read when the render is scheduled, so the callback of an async
+compile uses the values that compile ran with.  Color and size
 are not baked in —
 `latex-to-svg-backend' tints the color-independent SVG to the buffer
 foreground and scales it to the buffer font at display time, the
@@ -874,13 +905,14 @@ then re-renders)."
                     (format "$%s$" latex)
                   (format "\\[ %s \\]" latex)))
            (engine agent-shell-math-renderer-engine)
+           (fallback (agent-shell-math-renderer--fallback-for engine))
            (rescale (if inline
                         agent-shell-math-renderer-inline-rescale
                       agent-shell-math-renderer-display-rescale))
            (color agent-shell-math-renderer-foreground-color)
            (background agent-shell-math-renderer-background-color)
            (padding agent-shell-math-renderer-padding)
-           (image (latex-to-svg-backend doc :engine engine
+           (image (latex-to-svg-backend doc :engine engine :fallback fallback
                                         :rescale-by rescale :color color
                                         :background background :padding padding
                                         :font-height font-height)))
@@ -899,7 +931,8 @@ then re-renders)."
               (e (copy-marker end)))
           (latex-to-svg-backend
            doc
-           :engine engine :rescale-by rescale :color color
+           :engine engine :fallback fallback
+           :rescale-by rescale :color color
            :background background :padding padding :font-height font-height
            :callback
            (lambda ()
@@ -910,7 +943,8 @@ then re-renders)."
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
                   (latex-to-svg-backend
-                   doc :engine engine :rescale-by rescale :color color
+                   doc :engine engine :fallback fallback
+                   :rescale-by rescale :color color
                    :background background :padding padding
                    :font-height (agent-shell-math-renderer--font-height buffer))
                   inline))))))))))
