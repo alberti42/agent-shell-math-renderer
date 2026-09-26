@@ -290,9 +290,8 @@ When nil (the default), the backend warns once per equation per buffer
 about an equation it cannot typeset, naming the buffer and linking to
 the log.  When non-nil, it does not; the equation keeps its raw text.
 Passed to `latex-to-svg-backend' as `:quiet'.  Configuration problems,
-such as missing programs, still warn.  A chat buffer visits no file, so
-a `.dir-locals.el' value rarely reaches it: set the option globally or
-in a mode hook."
+such as missing programs, still warn.  Set it buffer-locally, in a mode
+hook or in `.dir-locals.el', to silence one kind of chat."
   :type 'boolean
   :safe #'booleanp
   :group 'agent-shell-math-renderer)

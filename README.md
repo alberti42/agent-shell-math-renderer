@@ -239,8 +239,8 @@ minor mode from `.dir-locals.el` uses an `eval` entry:
 Emacs will ask once to confirm the `eval` (or mark it safe).
 
 The same works for the other side-effect-free options (`-delimiters`,
-`-fence-languages`, `-render-inline`, `-engine`, `-fallback`, `-inline-rescale`,
-`-display-rescale`, the color/box options, and the backend's
+`-fence-languages`, `-render-inline`, `-engine`, `-fallback`, `-quiet`,
+`-inline-rescale`, `-display-rescale`, the color/box options, and the backend's
 `latex-to-svg-backend-font-scale`).
 The backend's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
 `-dvisvgm-program`, `-preamble`, `-appended-preamble`, `-cache-directory`) are
@@ -334,9 +334,9 @@ in the chat buffer: it recompiles that buffer's equations, bypassing the cache.
 The backend warns once per equation per buffer about an equation it cannot
 typeset, naming the buffer and linking to the log. To silence those warnings,
 set `agent-shell-math-renderer-quiet`; the equation then keeps its raw text.
-Configuration problems, such as missing programs, still warn. A chat buffer
-visits no file, so a `.dir-locals.el` value rarely reaches it: set the option
-globally or in a mode hook.
+Configuration problems, such as missing programs, still warn. Set it
+buffer-locally, in a mode hook or in `.dir-locals.el`, to silence one kind of
+chat.
 
 ```elisp
 (setq agent-shell-math-renderer-quiet t)
