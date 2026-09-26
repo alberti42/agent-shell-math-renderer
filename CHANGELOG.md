@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parse it): …" for a fallback picture. The tooltip is set when the image
   is laid, from `latex-to-svg-backend-engine-used`; until then it shows the
   LaTeX alone.
+- Setting an option that affects the equations (`-engine`, `-fallback`,
+  `-foreground-color`, `-background-color`, `-padding`, `-inline-rescale`,
+  `-display-rescale`, `-center-display-math`) with `setq`, `setq-local` or
+  Customize updates the equations on its own, through a variable watcher:
+  a change of the default value updates every buffer with equations, a
+  buffer-local one that buffer, and a `let` nothing. The update runs from a
+  timer, so several changes in one go update once. Before, each of these
+  options needed `C-u M-x agent-shell-math-renderer-refresh`.
 
 ### Changed
 

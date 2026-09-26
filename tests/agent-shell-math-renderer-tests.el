@@ -940,6 +940,51 @@ is fixed, so no graphical frame is needed."
                          (substitute-command-keys
                           (get-text-property (point-min) 'help-echo)))))))))
 
+(ert-deftest agent-shell-math-renderer-option-watcher-queues-buffers ()
+  ;; Setting a watched option queues the buffers to update, on one timer: a
+  ;; `setq-local' that buffer, a `setq-default' every buffer, a `let' none.
+  (let ((agent-shell-math-renderer--option-buffers nil)
+        (agent-shell-math-renderer--option-timer nil)
+        (scheduled 0))
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (&rest _) (cl-incf scheduled) (timer-create))))
+      (let ((agent-shell-math-renderer-padding 3))
+        (ignore agent-shell-math-renderer-padding))
+      (should-not agent-shell-math-renderer--option-buffers)
+      (should (= 0 scheduled))
+      (with-temp-buffer
+        (setq-local agent-shell-math-renderer-padding 3)
+        (setq-local agent-shell-math-renderer-engine 'ratex)
+        (should (equal agent-shell-math-renderer--option-buffers
+                       (list (current-buffer)))))
+      (should (= 1 scheduled))
+      (let ((old (default-value 'agent-shell-math-renderer-padding)))
+        (unwind-protect
+            (setq-default agent-shell-math-renderer-padding 3)
+          (set-default 'agent-shell-math-renderer-padding old)))
+      (should (eq t agent-shell-math-renderer--option-buffers))
+      (should (= 1 scheduled)))))
+
+(ert-deftest agent-shell-math-renderer-option-update-renders-new-value ()
+  ;; The timer's function re-renders the queued buffers that have equations,
+  ;; with the value the option now has.
+  (let ((agent-shell-math-renderer--option-buffers nil)
+        (agent-shell-math-renderer--option-timer nil))
+    (agent-shell-math-renderer-tests--with-backend-calls calls
+      (with-temp-buffer
+        (insert "xx")
+        (put-text-property (point-min) (point-max)
+                           'agent-shell-math-renderer-source "x")
+        (setq agent-shell-math-renderer--present t)
+        (cl-letf (((symbol-function 'run-at-time) (lambda (&rest _) nil)))
+          (setq-local agent-shell-math-renderer-engine 'ratex))
+        (should (equal agent-shell-math-renderer--option-buffers
+                       (list (current-buffer))))
+        (agent-shell-math-renderer--update-after-option)
+        (should-not agent-shell-math-renderer--option-buffers)
+        (should calls)
+        (should (eq 'ratex (plist-get (cdar calls) :engine)))))))
+
 (ert-deftest agent-shell-math-renderer-refresh-passes-new-engine ()
   ;; A refresh after changing the option renders with the new engine.
   (agent-shell-math-renderer-tests--with-backend-calls calls

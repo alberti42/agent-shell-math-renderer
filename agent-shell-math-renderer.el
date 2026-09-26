@@ -220,10 +220,9 @@ This is a display-time indent, not part of the image: the equation
 keeps its own size and any `agent-shell-math-renderer-padding' box, and
 the line it sits on gets a `line-prefix' stretching to put the image's
 center on the window's center.  Redisplay evaluates that stretch, so it
-follows a window resize, a split or a font change on its own.  After
-changing this option, run `agent-shell-math-renderer-refresh' to apply
-it to equations already on screen (with a prefix argument, in every
-buffer at once).
+follows a window resize, a split or a font change on its own.
+Setting it with `setq', `setq-local' or Customize updates the
+equations on its own.
 
 Centering replaces agent-shell's own indentation for that line, since
 the position is measured from the window rather than from the
@@ -247,9 +246,8 @@ programs are is set in the backend (see
 
 Passed to `latex-to-svg-backend' as `:engine'.  Each engine has its
 own cache entries, so switching back and forth does not recompile an
-equation already compiled by both.  After changing it, run
-`agent-shell-math-renderer-refresh' to apply (with a prefix argument
-to apply in every buffer at once)."
+equation already compiled by both.  Setting it with `setq',
+`setq-local' or Customize updates the equations on its own."
   :type '(choice (const :tag "LaTeX (latex + dvisvgm)" latex)
                  (const :tag "RaTeX (render-svg)" ratex))
   :safe (lambda (v) (memq v '(latex ratex)))
@@ -271,7 +269,8 @@ Two consequences: a fallback equation is typeset in LaTeX's style
 shows which engine typeset it.  The fallback needs `latex'
 and `dvisvgm'; without them the backend warns, and you either install
 them or set this option to nil.  When nil, an equation the engine
-rejects keeps its raw text."
+rejects keeps its raw text.  Setting it with `setq', `setq-local' or
+Customize updates the equations on its own."
   :type 'boolean
   :safe #'booleanp
   :group 'agent-shell-math-renderer)
@@ -301,9 +300,9 @@ in a mode hook."
 (defcustom agent-shell-math-renderer-inline-rescale 1.0
   "Size multiplier for inline math previews (`\\(...\\)').
 Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
-`latex-to-svg-backend's `:rescale-by'.  Re-scales from cache (no recompile);
-after changing it, run `agent-shell-math-renderer-refresh' to apply (with a
-prefix argument to apply in every buffer at once)."
+`latex-to-svg-backend's `:rescale-by'.  Re-scales from cache (no
+recompile).  Setting it with `setq', `setq-local' or Customize updates the
+equations on its own."
   :type 'number
   :safe #'numberp
   :group 'agent-shell-math-renderer)
@@ -313,9 +312,9 @@ prefix argument to apply in every buffer at once)."
 Applies to `\\=\\[...\\]', `$$...$$', and fenced math blocks.
 Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by' — e.g. set to 1.1 for display equations a
-touch larger than inline.  Re-scales from cache (no recompile); after
-changing it, run `agent-shell-math-renderer-refresh' to apply (with a
-prefix argument to apply in every buffer at once)."
+touch larger than inline.  Re-scales from cache (no recompile).
+Setting it with `setq', `setq-local' or Customize updates the
+equations on its own."
   :type 'number
   :safe #'numberp
   :group 'agent-shell-math-renderer)
@@ -331,9 +330,8 @@ foreground and track the theme (see
 fixed color regardless of theme.
 
 Passed to `latex-to-svg-backend' as `:color'; it re-tints from cache
-\(no recompile).  After changing it, run
-`agent-shell-math-renderer-refresh' to apply (with a prefix argument
-to apply in every buffer at once)."
+\(no recompile).  Setting it with `setq', `setq-local' or Customize updates the
+equations on its own."
   :type '(choice (const :tag "Follow buffer foreground" nil)
                  (color :tag "Fixed color"))
   :safe (lambda (v) (or (null v) (stringp v)))
@@ -349,9 +347,8 @@ paint that color behind every equation.  A very light gray reads
 best; keep it subtle so it doesn't fight the buffer background.
 
 Passed to `latex-to-svg-backend' as `:background'; it applies from
-cache (no recompile).  After changing it, run
-`agent-shell-math-renderer-refresh' to apply (with a prefix argument
-to apply in every buffer at once)."
+cache (no recompile).  Setting it with `setq', `setq-local' or
+Customize updates the equations on its own."
   :type '(choice (const :tag "Transparent" nil)
                  (color :tag "Box color"))
   :safe (lambda (v) (or (null v) (stringp v)))
@@ -384,9 +381,8 @@ asymmetric one still shifts the equation within its own image (a
 left-only pad indents it).
 
 Passed to `latex-to-svg-backend' as `:padding'; it applies from
-cache (no recompile).  After changing it, run
-`agent-shell-math-renderer-refresh' to apply (with a prefix argument
-to apply in every buffer at once)."
+cache (no recompile).  Setting it with `setq', `setq-local' or
+Customize updates the equations on its own."
   :type '(choice (const :tag "None" nil)
                  (number :tag "All four sides (pt)")
                  (list :tag "Per side (pt)"
@@ -1027,9 +1023,9 @@ is reused from cache)."
   "Re-render displayed equations for the current colors and font.
 Re-render BUFFER, defaulting to the current buffer.  With ALL non-nil
 \(interactively, a prefix argument), re-render every buffer that has
-rendered equations instead — for a global change no appearance check
-can see, such as setting `agent-shell-math-renderer-foreground-color'
-or `agent-shell-math-renderer-engine'.
+rendered equations instead.  Setting an option that affects the
+equations needs no refresh: see
+`agent-shell-math-renderer--watched-options'.
 Call after a theme, appearance, or font-size change so equation images
 pick up the new colors and size.
 
@@ -1050,6 +1046,62 @@ fast and untouched buffers refresh lazily when next displayed."
                     (buffer-list))
                  (list (or buffer (current-buffer)))))
     (agent-shell-math-renderer--refresh-buffer buf)))
+
+(defconst agent-shell-math-renderer--watched-options
+  '(agent-shell-math-renderer-engine
+    agent-shell-math-renderer-fallback
+    agent-shell-math-renderer-foreground-color
+    agent-shell-math-renderer-background-color
+    agent-shell-math-renderer-padding
+    agent-shell-math-renderer-inline-rescale
+    agent-shell-math-renderer-display-rescale
+    agent-shell-math-renderer-center-display-math)
+  "Options whose change updates the equations on its own.
+Each has a variable watcher (`agent-shell-math-renderer--option-changed').")
+
+(defvar agent-shell-math-renderer--option-buffers nil
+  "Buffers to update after an option changed: a list, or t for all.")
+
+(defvar agent-shell-math-renderer--option-timer nil
+  "Timer of the pending update after an option changed, or nil.")
+
+(defun agent-shell-math-renderer--option-changed
+    (_symbol _newval operation where)
+  "Schedule the update after one of `--watched-options' changed.
+A variable watcher: OPERATION is how it changed and WHERE the buffer
+whose local value changed, or nil for the default value.  A change of
+the default value (`setq' of a global value, `setq-default', Customize)
+updates every buffer with equations; a buffer-local one (`setq-local')
+updates that buffer.  A let-binding updates nothing.  The watcher runs
+before the value is set, so the update runs from a timer, which also
+takes several changes in one go (a block of `setq's in an init file)."
+  (when (eq operation 'set)
+    (setq agent-shell-math-renderer--option-buffers
+          (cond ((or (null where)
+                     (eq agent-shell-math-renderer--option-buffers t))
+                 t)
+                ((memq where agent-shell-math-renderer--option-buffers)
+                 agent-shell-math-renderer--option-buffers)
+                (t (cons where agent-shell-math-renderer--option-buffers))))
+    (unless (timerp agent-shell-math-renderer--option-timer)
+      (setq agent-shell-math-renderer--option-timer
+            (run-at-time
+             0 nil #'agent-shell-math-renderer--update-after-option)))))
+
+(defun agent-shell-math-renderer--update-after-option ()
+  "Re-render the buffers `--option-changed' collected.
+Only buffers with rendered equations are re-rendered (see
+`agent-shell-math-renderer--refresh-buffer')."
+  (let ((buffers agent-shell-math-renderer--option-buffers))
+    (setq agent-shell-math-renderer--option-buffers nil
+          agent-shell-math-renderer--option-timer nil)
+    (dolist (buf (if (eq buffers t) (buffer-list) buffers))
+      (when (and (buffer-live-p buf)
+                 (buffer-local-value 'agent-shell-math-renderer--present buf))
+        (agent-shell-math-renderer--refresh-buffer buf)))))
+
+(dolist (option agent-shell-math-renderer--watched-options)
+  (add-variable-watcher option #'agent-shell-math-renderer--option-changed))
 
 (defun agent-shell-math-renderer--maybe-refresh (&rest _)
   "Re-render equations if the appearance changed since they were rendered.
