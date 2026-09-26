@@ -60,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   currently defined" and `f'(x)` as "f’(x)". The `help-echo` now puts `\=`
   before each backslash, backquote and apostrophe, which
   `substitute-command-keys` copies literally.
+- The docstring of `agent-shell-math-renderer-refresh` no longer says a
+  color change recompiles: colors and size apply at display time, and only
+  a change of engine compiles the equations the new engine has not typeset.
+  The color, box and padding options say "(no recompile)" instead of "(no
+  LaTeX recompile)", which no engine does.
 
 ## [0.10.0] - 2026-09-09
 

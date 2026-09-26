@@ -331,7 +331,7 @@ foreground and track the theme (see
 fixed color regardless of theme.
 
 Passed to `latex-to-svg-backend' as `:color'; it re-tints from cache
-\(no LaTeX recompile).  After changing it, run
+\(no recompile).  After changing it, run
 `agent-shell-math-renderer-refresh' to apply (with a prefix argument
 to apply in every buffer at once)."
   :type '(choice (const :tag "Follow buffer foreground" nil)
@@ -349,7 +349,7 @@ paint that color behind every equation.  A very light gray reads
 best; keep it subtle so it doesn't fight the buffer background.
 
 Passed to `latex-to-svg-backend' as `:background'; it applies from
-cache (no LaTeX recompile).  After changing it, run
+cache (no recompile).  After changing it, run
 `agent-shell-math-renderer-refresh' to apply (with a prefix argument
 to apply in every buffer at once)."
   :type '(choice (const :tag "Transparent" nil)
@@ -384,7 +384,7 @@ asymmetric one still shifts the equation within its own image (a
 left-only pad indents it).
 
 Passed to `latex-to-svg-backend' as `:padding'; it applies from
-cache (no LaTeX recompile).  After changing it, run
+cache (no recompile).  After changing it, run
 `agent-shell-math-renderer-refresh' to apply (with a prefix argument
 to apply in every buffer at once)."
   :type '(choice (const :tag "None" nil)
@@ -1034,7 +1034,9 @@ Call after a theme, appearance, or font-size change so equation images
 pick up the new colors and size.
 
 Images are rebuilt at the current font scale from the on-disk SVGs —
-cheap, no LaTeX recompile unless the color also changed.  The
+cheap, with no recompile: colors and size apply at display time.  The
+exception is a change of `agent-shell-math-renderer-engine': an
+equation the new engine has not typeset yet is compiled.  The
 `latex-to-svg-backend' in-memory image cache is keyed per display scale, so a
 new size just adds entries and a sibling buffer's warm images survive
 — no clear needed.  Each re-rendered buffer records its new appearance
