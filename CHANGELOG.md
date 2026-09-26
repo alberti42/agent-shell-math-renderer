@@ -56,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Requires `latex-to-svg-backend` 0.10.0, for `:engine`, `:fallback` and
+  `:quiet`.
 - Display math is passed to the backend as `\[ body \]` instead of
   `$\displaystyle body$`. The backend's `varwidth` preamble typesets both at
   the same size and with the same glyphs. The cache key changes, so each
