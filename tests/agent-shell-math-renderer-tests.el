@@ -894,6 +894,22 @@ is fixed, so no graphical frame is needed."
       (should (= 3 (length calls)))
       (should (eq 'latex (plist-get (cdar calls) :fallback))))))
 
+(ert-deftest agent-shell-math-renderer-quiet-passed-to-every-backend-call ()
+  ;; `:quiet' is nil by default and t when the option is set, at every call,
+  ;; the callback's included.
+  (should-not (default-value 'agent-shell-math-renderer-quiet))
+  (dolist (quiet '(nil t))
+    (agent-shell-math-renderer-tests--with-backend-calls calls
+      (with-temp-buffer
+        (insert "xx")
+        (let ((agent-shell-math-renderer-quiet quiet))
+          (agent-shell-math-renderer--render
+           (current-buffer) (point-min) (point-max) "x"))
+        (funcall (plist-get (cdar calls) :callback))
+        (should (= 3 (length calls)))
+        (dolist (call calls)
+          (should (eq quiet (plist-get (cdr call) :quiet))))))))
+
 (ert-deftest agent-shell-math-renderer-refresh-passes-new-engine ()
   ;; A refresh after changing the option renders with the new engine.
   (agent-shell-math-renderer-tests--with-backend-calls calls

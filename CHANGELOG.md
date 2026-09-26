@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Modern) next to RaTeX's (KaTeX's fonts), and takes about 300 ms to compile
   instead of about 6 ms. The fallback needs `latex` and `dvisvgm`. With the
   option off, an equation the engine rejects keeps its raw text.
+- `agent-shell-math-renderer-quiet` (default nil): when non-nil, the backend
+  gives no warning about an equation it cannot typeset, and the equation
+  keeps its raw text. It is passed to `latex-to-svg-backend` as `:quiet`.
+  Configuration problems, such as missing programs, still warn. When nil,
+  the backend warns once per equation per buffer, naming the buffer and
+  linking to the log.
 
 ### Changed
 

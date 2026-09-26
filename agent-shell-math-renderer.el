@@ -283,6 +283,20 @@ ENGINE is not already `latex'."
        (not (memq engine '(nil latex)))
        'latex))
 
+(defcustom agent-shell-math-renderer-quiet nil
+  "Whether the backend stays silent about an equation it cannot typeset.
+
+When nil (the default), the backend warns once per equation per buffer
+about an equation it cannot typeset, naming the buffer and linking to
+the log.  When non-nil, it does not; the equation keeps its raw text.
+Passed to `latex-to-svg-backend' as `:quiet'.  Configuration problems,
+such as missing programs, still warn.  A chat buffer visits no file, so
+a `.dir-locals.el' value rarely reaches it: set the option globally or
+in a mode hook."
+  :type 'boolean
+  :safe #'booleanp
+  :group 'agent-shell-math-renderer)
+
 (defcustom agent-shell-math-renderer-inline-rescale 1.0
   "Size multiplier for inline math previews (`\\(...\\)').
 Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
@@ -881,9 +895,10 @@ here into valid body LaTeX (`$body$' inline, `\\=\\[ body \\]' display)
 and pass that; the delimiters also choose inline vs display style, for
 either engine.  The engine is `agent-shell-math-renderer-engine' (via
 `:engine'), and its fallback is `agent-shell-math-renderer-fallback'
-\(via `:fallback', see `agent-shell-math-renderer--fallback-for'); both
-are read when the render is scheduled, so the callback of an async
-compile uses the values that compile ran with.  Color and size
+\(via `:fallback', see `agent-shell-math-renderer--fallback-for'), and
+`agent-shell-math-renderer-quiet' is passed as `:quiet'; all three are
+read when the render is scheduled, so the callback of an async compile
+uses the values that compile ran with.  Color and size
 are not baked in —
 `latex-to-svg-backend' tints the color-independent SVG to the buffer
 foreground and scales it to the buffer font at display time, the
@@ -906,6 +921,7 @@ then re-renders)."
                   (format "\\[ %s \\]" latex)))
            (engine agent-shell-math-renderer-engine)
            (fallback (agent-shell-math-renderer--fallback-for engine))
+           (quiet agent-shell-math-renderer-quiet)
            (rescale (if inline
                         agent-shell-math-renderer-inline-rescale
                       agent-shell-math-renderer-display-rescale))
@@ -913,8 +929,9 @@ then re-renders)."
            (background agent-shell-math-renderer-background-color)
            (padding agent-shell-math-renderer-padding)
            (image (latex-to-svg-backend doc :engine engine :fallback fallback
-                                        :rescale-by rescale :color color
-                                        :background background :padding padding
+                                        :quiet quiet :rescale-by rescale
+                                        :color color :background background
+                                        :padding padding
                                         :font-height font-height)))
       ;; Record the appearance (colors + font height) this render is for,
       ;; so a later theme / frame / font change can detect the difference
@@ -931,7 +948,7 @@ then re-renders)."
               (e (copy-marker end)))
           (latex-to-svg-backend
            doc
-           :engine engine :fallback fallback
+           :engine engine :fallback fallback :quiet quiet
            :rescale-by rescale :color color
            :background background :padding padding :font-height font-height
            :callback
@@ -943,7 +960,7 @@ then re-renders)."
                  (agent-shell-math-renderer--overlay-image
                   buffer s e
                   (latex-to-svg-backend
-                   doc :engine engine :fallback fallback
+                   doc :engine engine :fallback fallback :quiet quiet
                    :rescale-by rescale :color color
                    :background background :padding padding
                    :font-height (agent-shell-math-renderer--font-height buffer))

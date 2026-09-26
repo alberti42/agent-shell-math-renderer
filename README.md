@@ -317,6 +317,19 @@ you either install them or set the option to nil:
 
 With the option off, an equation RaTeX rejects keeps its raw text.
 
+#### Quiet failures
+
+The backend warns once per equation per buffer about an equation it cannot
+typeset, naming the buffer and linking to the log. To silence those warnings,
+set `agent-shell-math-renderer-quiet`; the equation then keeps its raw text.
+Configuration problems, such as missing programs, still warn. A chat buffer
+visits no file, so a `.dir-locals.el` value rarely reaches it: set the option
+globally or in a mode hook.
+
+```elisp
+(setq agent-shell-math-renderer-quiet t)
+```
+
 ### Extra LaTeX packages
 
 Need extra packages in your equations? Append to the preamble — the value is
@@ -355,6 +368,7 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
 | `agent-shell-math-renderer-engine` | `latex` | Engine that typesets the equations: `latex` (`latex` + `dvisvgm`) or `ratex` (RaTeX's `render-svg`). See [Engine](#engine). Run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-fallback` | `t` | Typeset with LaTeX an equation the engine rejects, when the engine is not `latex`. See [Falling back to LaTeX](#falling-back-to-latex). |
+| `agent-shell-math-renderer-quiet` | `nil` | Drop the backend's warning about an equation it cannot typeset. Configuration problems still warn. See [Quiet failures](#quiet-failures). |
 | `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the backend's `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache — run `C-u M-x agent-shell-math-renderer-refresh` after changing. |
