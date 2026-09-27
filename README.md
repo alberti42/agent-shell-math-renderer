@@ -8,10 +8,11 @@
 [![License: GPL-3.0](https://img.shields.io/github/license/alberti42/agent-shell-math-renderer)](LICENSE)
 
 Render LaTeX math in [`agent-shell`](https://github.com/xenodium/agent-shell)'s
-streamed markdown output. Display equations and inline math in an agent's
-response are compiled with `latex` → `dvisvgm`, or with RaTeX, and shown as crisp,
-theme-matched SVG images — while the original LaTeX stays in the buffer, so
-copy and save round-trip renderable source.
+streamed markdown output. Display equations and inline math in an agent's response
+are compiled with [LaTeX](https://www.latex-project.org/) (`latex` → `dvisvgm`), or
+with [RaTeX](https://github.com/erweixin/RaTeX), and shown as crisp, theme-matched
+SVG images — while the original LaTeX stays in the buffer, so copy and save
+round-trip renderable source.
 
 [![agent-shell-math-renderer rendering the Schrödinger equation in an agent response](images/demo.jpeg)](https://www.youtube.com/watch?v=wGM3xH06Wso)
 
