@@ -71,7 +71,7 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 - **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.66.1 or newer —
   the release with the backslash-escape pass and the right-label render-function
   suppression the hook relies on)
-- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.9.0
+- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.10.0
   or newer — the
   backend (equation compile, caching, display-time tint/scale) is
   factored out into this standalone library. All typesetting knobs (LaTeX /
