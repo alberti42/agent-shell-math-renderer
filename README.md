@@ -242,7 +242,7 @@ Emacs will ask once to confirm the `eval` (or mark it safe).
 
 The same works for the other side-effect-free options (`-delimiters`,
 `-fence-languages`, `-render-inline`, `-engine`, `-fallback`, `-quiet`,
-`-inline-rescale`, `-display-rescale`, the color/box options, and the backend's
+`-rescale-inline`, `-rescale-display`, the color/box options, and the backend's
 `latex-to-svg-backend-font-scale`).
 The backend's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
 `-dvisvgm-program`, `-preamble`, `-appended-preamble`, `-preamble-not-precompiled`,
@@ -404,12 +404,13 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-engine` | `latex` | Engine that typesets the equations: `latex` (`latex` + `dvisvgm`) or `ratex` (RaTeX's `render-svg`). See [Engine](#engine). Setting it updates the equations on its own. |
 | `agent-shell-math-renderer-fallback` | `t` | Typeset with LaTeX an equation the engine rejects, when the engine is not `latex`. See [Falling back to LaTeX](#falling-back-to-latex). |
 | `agent-shell-math-renderer-quiet` | `nil` | Drop the backend's warning about an equation it cannot typeset. Configuration problems still warn. See [Quiet failures](#quiet-failures). |
-| `agent-shell-math-renderer-inline-rescale` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the backend's `latex-to-svg-backend-font-scale`. Re-scales from cache; setting it updates the equations on its own. |
-| `agent-shell-math-renderer-display-rescale` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache; setting it updates the equations on its own. |
+| `agent-shell-math-renderer-rescale-inline` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the backend's `latex-to-svg-backend-font-scale`. Re-scales from cache; setting it updates the equations on its own. |
+| `agent-shell-math-renderer-rescale-display` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Fixed tint color for equations; `nil` follows the buffer foreground (tracks the theme). Re-tints from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. Re-boxes from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-center-display-math` | `nil` | Center display-math equations in the window (inline math is never centered). Replaces agent-shell's indentation on that line, since the position is measured from the window. Setting it updates the equations on its own. |
-| `agent-shell-math-renderer-padding` | `nil` | Padding (pt) between the equation and the box edge. A number applies to all four sides; a list of four numbers pads each side separately — `(TOP RIGHT BOTTOM LEFT)`, so `(0 0 0 6)` is a left gutter. `nil`/`0` crops to the ink. Re-renders from cache; setting it updates the equations on its own. |
+| `agent-shell-math-renderer-padding-inline` | `nil` | Padding (pt) between an inline `\(…\)` equation and the box edge. A number applies to all four sides; a list of four numbers pads each side separately — `(TOP RIGHT BOTTOM LEFT)`, so `(0 0 0 6)` is a left gutter. `0` crops to the ink; `nil` takes the value of the obsolete `agent-shell-math-renderer-padding`. Re-renders from cache; setting it updates the equations on its own. |
+| `agent-shell-math-renderer-padding-display` | `nil` | Padding (pt) between a display equation (`\[…\]`, `$$…$$`, fenced) and the box edge, with the values of `-padding-inline`. Re-renders from cache; setting it updates the equations on its own. |
 
 The **backend** options (equation size, toolchain, preamble, caching,
 placeholder / non-graphic behaviour) live in the
@@ -439,8 +440,9 @@ These options update the equations on their own when you set them, with
 |--------|----------------|
 | `agent-shell-math-renderer-engine` | the equations are typeset again with the new engine |
 | `agent-shell-math-renderer-fallback` | the equations RaTeX rejected are typeset again, or left as text |
-| `agent-shell-math-renderer-foreground-color`, `-background-color`, `-padding` | the pictures are redrawn from cache |
-| `agent-shell-math-renderer-inline-rescale`, `-display-rescale` | the pictures are redrawn from cache |
+| `agent-shell-math-renderer-foreground-color`, `-background-color` | the pictures are redrawn from cache |
+| `agent-shell-math-renderer-padding-inline`, `-padding-display` | the pictures are redrawn from cache |
+| `agent-shell-math-renderer-rescale-inline`, `-rescale-display` | the pictures are redrawn from cache |
 | `agent-shell-math-renderer-center-display-math` | the pictures are redrawn from cache |
 | `latex-to-svg-backend-preamble`, `-appended-preamble`, `-preamble-not-precompiled` | the equations are compiled with the new preamble, or taken from cache if compiled with it before |
 | `latex-to-svg-backend-line-width` | the numbered equations are compiled with the new width, or taken from cache if compiled with it before |

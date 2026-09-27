@@ -812,19 +812,91 @@ after text.
               'agent-shell-math-renderer-padding))
   (should (get 'agent-shell-math-renderer-background-padding
                'byte-obsolete-variable))
-  (let ((agent-shell-math-renderer-background-padding '(0 0 0 6)))
-    (should (equal agent-shell-math-renderer-padding '(0 0 0 6)))))
+  (with-suppressed-warnings ((obsolete agent-shell-math-renderer-padding
+                                       agent-shell-math-renderer-background-padding))
+    (let ((agent-shell-math-renderer-background-padding '(0 0 0 6)))
+      (should (equal agent-shell-math-renderer-padding '(0 0 0 6))))))
+
+(ert-deftest agent-shell-math-renderer-rescale-obsolete-aliases-track-the-new-names ()
+  ;; The pre-0.12.0 names `-inline-rescale' / `-display-rescale' stay usable
+  ;; as obsolete aliases of `-rescale-inline' / `-rescale-display', and
+  ;; setting an old name still updates the equations through the watcher on
+  ;; the new one.
+  (dolist (pair '((agent-shell-math-renderer-inline-rescale
+                   . agent-shell-math-renderer-rescale-inline)
+                  (agent-shell-math-renderer-display-rescale
+                   . agent-shell-math-renderer-rescale-display)))
+    (should (eq (indirect-variable (car pair)) (cdr pair)))
+    (should (get (car pair) 'byte-obsolete-variable)))
+  (with-suppressed-warnings ((obsolete agent-shell-math-renderer-inline-rescale))
+    (let ((agent-shell-math-renderer-inline-rescale 1.3))
+      (should (equal agent-shell-math-renderer-rescale-inline 1.3)))
+    (let ((agent-shell-math-renderer--option-buffers nil)
+          (agent-shell-math-renderer--option-defaults nil)
+          (agent-shell-math-renderer--option-timer nil))
+      (cl-letf (((symbol-function 'run-at-time) (lambda (&rest _) nil)))
+        (with-temp-buffer
+          (setq-local agent-shell-math-renderer-inline-rescale 1.3)
+          (should (equal agent-shell-math-renderer--option-buffers
+                         (list (current-buffer)))))))))
+
+(ert-deftest agent-shell-math-renderer-padding-by-kind ()
+  ;; Inline and display math take their own padding, on the first render and
+  ;; on a refresh.  A kind whose option is nil takes the obsolete
+  ;; `agent-shell-math-renderer-padding', so an old config still pads both;
+  ;; an explicit 0 does not fall back.
+  (agent-shell-math-renderer-tests--with-backend-calls calls
+    (with-temp-buffer
+      (insert "display inline")
+      (put-text-property 1 8 'agent-shell-math-renderer-source "a")
+      (put-text-property 9 15 'agent-shell-math-renderer-source "b")
+      (put-text-property 9 15 'agent-shell-math-renderer-inline t)
+      (with-suppressed-warnings ((obsolete agent-shell-math-renderer-padding))
+        (dolist (case '((2 6 nil (("$b$" . 2) ("\\[ a \\]" . 6)))
+                        (nil nil (4 0 4 0) (("$b$" . (4 0 4 0))
+                                            ("\\[ a \\]" . (4 0 4 0))))
+                        (0 nil 5 (("$b$" . 0) ("\\[ a \\]" . 5)))))
+          (let ((agent-shell-math-renderer-padding-inline (nth 0 case))
+                (agent-shell-math-renderer-padding-display (nth 1 case))
+                (agent-shell-math-renderer-padding (nth 2 case))
+                (paddings (lambda ()
+                            (sort (delete-dups
+                                   (mapcar (lambda (c)
+                                             (cons (car c)
+                                                   (plist-get (cdr c) :padding)))
+                                           calls))
+                                  (lambda (x y) (string< (car x) (car y)))))))
+            (setq calls nil)
+            (agent-shell-math-renderer--render (current-buffer) 9 15 "b" t)
+            (agent-shell-math-renderer--render (current-buffer) 1 8 "a")
+            (should (equal (funcall paddings) (nth 3 case)))
+            (setq calls nil)
+            (agent-shell-math-renderer--refresh-buffer (current-buffer))
+            (should (equal (funcall paddings) (nth 3 case)))))))))
+
+(ert-deftest agent-shell-math-renderer-padding-is-obsolete ()
+  ;; The one option for both kinds is obsolete; the two per kind are watched,
+  ;; like the other appearance options.
+  (should (get 'agent-shell-math-renderer-padding 'byte-obsolete-variable))
+  (dolist (option '(agent-shell-math-renderer-padding-inline
+                    agent-shell-math-renderer-padding-display
+                    agent-shell-math-renderer-rescale-inline
+                    agent-shell-math-renderer-rescale-display))
+    (should (memq option agent-shell-math-renderer--watched-options))))
 
 (ert-deftest agent-shell-math-renderer-padding-safe-matches-the-backend ()
   ;; A file-local padding is hand-written Lisp, so the `:safe' predicate
   ;; accepts every shape the backend takes (1-4 numbers) and nothing else --
   ;; a value Customize cannot express must still not need a y/n prompt.
-  (let ((safe (get 'agent-shell-math-renderer-padding 'safe-local-variable)))
-    (should safe)
-    (dolist (ok (list nil 3 3.5 '(0 0 0 6) '(2 6) '(1 2 3)))
-      (should (funcall safe ok)))
-    (dolist (bad (list "3" '(1 2 3 4 5) '(1 "2") 'x))
-      (should-not (funcall safe bad)))))
+  (dolist (option '(agent-shell-math-renderer-padding
+                    agent-shell-math-renderer-padding-inline
+                    agent-shell-math-renderer-padding-display))
+    (let ((safe (get option 'safe-local-variable)))
+      (should safe)
+      (dolist (ok (list nil 3 3.5 '(0 0 0 6) '(2 6) '(1 2 3)))
+        (should (funcall safe ok)))
+      (dolist (bad (list "3" '(1 2 3 4 5) '(1 "2") 'x))
+        (should-not (funcall safe bad))))))
 
 (defmacro agent-shell-math-renderer-tests--with-backend-calls (var &rest body)
   "Evaluate BODY with `latex-to-svg-backend' stubbed, recording into VAR.
@@ -949,22 +1021,22 @@ is fixed, so no graphical frame is needed."
         (scheduled 0))
     (cl-letf (((symbol-function 'run-at-time)
                (lambda (&rest _) (cl-incf scheduled) (timer-create))))
-      (let ((agent-shell-math-renderer-padding 3))
-        (ignore agent-shell-math-renderer-padding))
+      (let ((agent-shell-math-renderer-padding-inline 3))
+        (ignore agent-shell-math-renderer-padding-inline))
       (should-not agent-shell-math-renderer--option-buffers)
       (should (= 0 scheduled))
       (with-temp-buffer
-        (setq-local agent-shell-math-renderer-padding 3)
+        (setq-local agent-shell-math-renderer-padding-inline 3)
         (setq-local agent-shell-math-renderer-engine 'ratex)
         (should (equal agent-shell-math-renderer--option-buffers
                        (list (current-buffer)))))
       (should (= 1 scheduled))
-      (let ((old (default-value 'agent-shell-math-renderer-padding)))
+      (let ((old (default-value 'agent-shell-math-renderer-padding-inline)))
         (unwind-protect
-            (setq-default agent-shell-math-renderer-padding 3)
-          (set-default 'agent-shell-math-renderer-padding old)))
+            (setq-default agent-shell-math-renderer-padding-inline 3)
+          (set-default 'agent-shell-math-renderer-padding-inline old)))
       (should (equal agent-shell-math-renderer--option-defaults
-                     '(agent-shell-math-renderer-padding)))
+                     '(agent-shell-math-renderer-padding-inline)))
       (should (= 1 scheduled)))))
 
 (ert-deftest agent-shell-math-renderer-option-default-skips-buffers-with-own-value ()

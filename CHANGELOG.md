@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `agent-shell-math-renderer-padding-inline` and
+  `agent-shell-math-renderer-padding-display` set the padding of inline and
+  display equations separately, with the values
+  `agent-shell-math-renderer-padding` takes. They are safe as file-local
+  values and update the equations when set.
 - Setting one of the backend's options in the cache key that a project sets
   in `.dir-locals.el` (`latex-to-svg-backend-preamble`,
   `latex-to-svg-backend-appended-preamble`,
@@ -33,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   equations. The next compile dumps it again.
 - The README says how a chat takes a project's preamble from
   `.dir-locals.el` and how to trust the project's directory.
+
+### Deprecated
+
+- `agent-shell-math-renderer-padding`, which padded both kinds alike. It
+  still works: a kind whose own option is nil (the default) takes its value.
+- `agent-shell-math-renderer-inline-rescale` and
+  `agent-shell-math-renderer-display-rescale` are renamed
+  `agent-shell-math-renderer-rescale-inline` and
+  `agent-shell-math-renderer-rescale-display`, so the four per-kind options
+  share their roots and complete together. The old names keep working as
+  obsolete aliases.
 
 ## [0.11.0] - 2026-09-27
 

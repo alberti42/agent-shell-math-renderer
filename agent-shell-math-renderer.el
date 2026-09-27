@@ -217,8 +217,8 @@ than starting where the surrounding chat text starts.  Inline math is
 never centered: it belongs in the run of text.
 
 This is a display-time indent, not part of the image: the equation
-keeps its own size and any `agent-shell-math-renderer-padding' box, and
-the line it sits on gets a `line-prefix' stretching to put the image's
+keeps its own size and any `agent-shell-math-renderer-padding-display'
+box, and the line it sits on gets a `line-prefix' stretching to put the image's
 center on the window's center.  Redisplay evaluates that stretch, so it
 follows a window resize, a split or a font change on its own.
 Setting it with `setq', `setq-local' or Customize updates the
@@ -296,7 +296,14 @@ in a mode hook or in `.dir-locals.el', to silence one kind of chat."
   :safe #'booleanp
   :group 'agent-shell-math-renderer)
 
-(defcustom agent-shell-math-renderer-inline-rescale 1.0
+;; Before the defcustoms on purpose, like the padding alias below:
+;; `defvaralias' discards a value the obsolete name already holds.
+(define-obsolete-variable-alias 'agent-shell-math-renderer-inline-rescale
+  'agent-shell-math-renderer-rescale-inline "0.12.0")
+(define-obsolete-variable-alias 'agent-shell-math-renderer-display-rescale
+  'agent-shell-math-renderer-rescale-display "0.12.0")
+
+(defcustom agent-shell-math-renderer-rescale-inline 1.0
   "Size multiplier for inline math previews (`\\(...\\)').
 Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by'.  Re-scales from cache (no
@@ -306,7 +313,7 @@ equations on its own."
   :safe #'numberp
   :group 'agent-shell-math-renderer)
 
-(defcustom agent-shell-math-renderer-display-rescale 1.0
+(defcustom agent-shell-math-renderer-rescale-display 1.0
   "Size multiplier for display math previews.
 Applies to `\\=\\[...\\]', `$$...$$', and fenced math blocks.
 Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
@@ -359,18 +366,53 @@ Customize updates the equations on its own."
 (define-obsolete-variable-alias 'agent-shell-math-renderer-background-padding
   'agent-shell-math-renderer-padding "0.10.0")
 
+(defconst agent-shell-math-renderer--padding-type
+  '(choice (const :tag "None" nil)
+           (number :tag "All four sides (pt)")
+           (list :tag "Per side (pt)"
+                 (number :tag "Top   ")
+                 (number :tag "Right ")
+                 (number :tag "Bottom")
+                 (number :tag "Left  ")))
+  "Customize type of the padding options.")
+
+(defun agent-shell-math-renderer--padding-p (value)
+  "Non-nil when VALUE is a padding the backend accepts: nil, or 1-4 numbers.
+The `:safe' predicate of the padding options.  A file-local value is
+hand-written Lisp, so it accepts every shape the backend does, not just
+the two Customize offers."
+  (or (null value) (numberp value)
+      (and (consp value) (<= 1 (length value) 4)
+           (seq-every-p #'numberp value))))
+
 (defcustom agent-shell-math-renderer-padding nil
-  "Padding (in pt) added around rendered equations.
+  "Padding (in pt) added around every rendered equation.
+Obsolete: set `agent-shell-math-renderer-padding-inline' and
+`agent-shell-math-renderer-padding-display' instead.  A kind whose own
+option is nil takes this value, so setting it still pads both kinds.
+The values are the same as theirs."
+  :type agent-shell-math-renderer--padding-type
+  :safe #'agent-shell-math-renderer--padding-p
+  :group 'agent-shell-math-renderer)
+(make-obsolete-variable
+ 'agent-shell-math-renderer-padding
+ "set `agent-shell-math-renderer-padding-inline' and \
+`agent-shell-math-renderer-padding-display'."
+ "0.12.0")
+
+(defcustom agent-shell-math-renderer-padding-inline nil
+  "Padding (in pt) added around inline math (`\\(...\\)').
 
 Grows the box beyond the equation ink, so the ink is not flush
 against the box edge, and scales with the equation.  Either a
 number of pt (e.g. 3) applied to all four sides, or a list of four
 numbers (TOP RIGHT BOTTOM LEFT) to pad each side separately -- so
-a left gutter and nothing else is (0 0 0 6).  nil or 0 crops the
-box to the ink.  Set from Lisp, the shorter CSS forms the backend
-accepts work too (one, two or three numbers: see
-`latex-to-svg-backend'), but Customize offers only the number and
-the four-side list.
+a left gutter and nothing else is (0 0 0 6).  0 crops the box to
+the ink.  nil takes the value of the obsolete
+`agent-shell-math-renderer-padding', which crops too unless it is
+set.  Set from Lisp, the shorter CSS forms the backend accepts work
+too (one, two or three numbers: see `latex-to-svg-backend'), but
+Customize offers only the number and the four-side list.
 
 This mainly matters with
 `agent-shell-math-renderer-background-color' set, since padding is
@@ -381,19 +423,23 @@ left-only pad indents it).
 
 Passed to `latex-to-svg-backend' as `:padding'; it applies from
 cache (no recompile).  Setting it with `setq', `setq-local' or
-Customize updates the equations on its own."
-  :type '(choice (const :tag "None" nil)
-                 (number :tag "All four sides (pt)")
-                 (list :tag "Per side (pt)"
-                       (number :tag "Top   ")
-                       (number :tag "Right ")
-                       (number :tag "Bottom")
-                       (number :tag "Left  ")))
-  ;; A file-local value is hand-written Lisp, so accept every shape the
-  ;; backend does (1-4 numbers), not just the two Customize offers.
-  :safe (lambda (v) (or (null v) (numberp v)
-                        (and (consp v) (<= 1 (length v) 4)
-                             (seq-every-p #'numberp v))))
+Customize updates the equations on its own.  See
+`agent-shell-math-renderer-padding-display' for display math."
+  :type agent-shell-math-renderer--padding-type
+  :safe #'agent-shell-math-renderer--padding-p
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-padding-display nil
+  "Padding (in pt) added around display math.
+Display math is `\\=\\[...\\]', `$$...$$' and fenced math blocks.  The
+values are those of `agent-shell-math-renderer-padding-inline', which
+pads inline math: a number for all four sides, a list (TOP RIGHT
+BOTTOM LEFT), 0 to crop to the ink, or nil for the value of the
+obsolete `agent-shell-math-renderer-padding'.  Applies from cache (no
+recompile).  Setting it with `setq', `setq-local' or Customize updates
+the equations on its own."
+  :type agent-shell-math-renderer--padding-type
+  :safe #'agent-shell-math-renderer--padding-p
   :group 'agent-shell-math-renderer)
 
 (defcustom agent-shell-math-renderer-render-submitted-prompts nil
@@ -914,6 +960,17 @@ backend's cache key is a hash of this exact string, so
       (format "$%s$" latex)
     (format "\\[ %s \\]" latex)))
 
+(defun agent-shell-math-renderer--padding-for (inline)
+  "Return the `:padding' for an INLINE (else display) equation.
+That is `agent-shell-math-renderer-padding-inline' or
+`agent-shell-math-renderer-padding-display', or, when it is nil, the
+obsolete `agent-shell-math-renderer-padding'."
+  (or (if inline
+          agent-shell-math-renderer-padding-inline
+        agent-shell-math-renderer-padding-display)
+      (with-suppressed-warnings ((obsolete agent-shell-math-renderer-padding))
+        agent-shell-math-renderer-padding)))
+
 (defun agent-shell-math-renderer--render (buffer start end latex &optional inline)
   "Render LATEX over BUFFER's START..END as an equation image.
 
@@ -939,11 +996,12 @@ uses the values that compile ran with.  Color and size
 are not baked in —
 `latex-to-svg-backend' tints the color-independent SVG to the buffer
 foreground and scales it to the buffer font at display time, the
-latter by `agent-shell-math-renderer-inline-rescale' /
-`-display-rescale' (via `:rescale-by') for INLINE / display math.
+latter by `agent-shell-math-renderer-rescale-inline' /
+`-rescale-display' (via `:rescale-by') for INLINE / display math.
 The tint, an optional box color, and its padding are overridden by
 `agent-shell-math-renderer-foreground-color' / `-background-color' /
-`-padding' (via `:color' / `:background' / `:padding'),
+`agent-shell-math-renderer--padding-for' (via `:color' / `:background'
+/ `:padding'),
 all nil by default (follow the buffer foreground / transparent /
 cropped to the ink).  The buffer font height is measured against
 BUFFER's actual display frame (`agent-shell-math-renderer--font-height')
@@ -958,11 +1016,11 @@ then re-renders)."
            (fallback (agent-shell-math-renderer--fallback-for engine))
            (quiet agent-shell-math-renderer-quiet)
            (rescale (if inline
-                        agent-shell-math-renderer-inline-rescale
-                      agent-shell-math-renderer-display-rescale))
+                        agent-shell-math-renderer-rescale-inline
+                      agent-shell-math-renderer-rescale-display))
            (color agent-shell-math-renderer-foreground-color)
            (background agent-shell-math-renderer-background-color)
-           (padding agent-shell-math-renderer-padding)
+           (padding (agent-shell-math-renderer--padding-for inline))
            (image (latex-to-svg-backend doc :engine engine :fallback fallback
                                         :quiet quiet :rescale-by rescale
                                         :color color :background background
@@ -1083,8 +1141,10 @@ fast and untouched buffers refresh lazily when next displayed."
     agent-shell-math-renderer-foreground-color
     agent-shell-math-renderer-background-color
     agent-shell-math-renderer-padding
-    agent-shell-math-renderer-inline-rescale
-    agent-shell-math-renderer-display-rescale
+    agent-shell-math-renderer-padding-inline
+    agent-shell-math-renderer-padding-display
+    agent-shell-math-renderer-rescale-inline
+    agent-shell-math-renderer-rescale-display
     agent-shell-math-renderer-center-display-math
     latex-to-svg-backend-preamble
     latex-to-svg-backend-appended-preamble
