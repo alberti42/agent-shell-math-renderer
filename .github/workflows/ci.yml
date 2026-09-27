@@ -6,8 +6,7 @@
 # acp) and latex-to-svg-backend.  package.el installs them from MELPA, which
 # is where a user gets them too, so a dependency that changes under this
 # package shows up here rather than in a user's report.  Every later step
-# calls `package-initialize' to put them on the load-path.  (For now the
-# backend is a checkout instead, passed with `-L': see its step.)
+# calls `package-initialize' to put them on the load-path.
 #
 # The suite needs no TeX toolchain, no graphical display and no Emacs built
 # with librsvg: nothing in it skips.
@@ -61,7 +60,8 @@ jobs:
                            (cons "melpa" "https://melpa.org/packages/") t)
               (package-initialize)
               (package-refresh-contents)
-              (package-install (quote agent-shell)))'; then
+              (package-install (quote agent-shell))
+              (package-install (quote latex-to-svg-backend)))'; then
               exit 0
             fi
             echo "MELPA fetch failed (attempt $attempt of 3); retrying in 15s"
@@ -69,24 +69,12 @@ jobs:
           done
           exit 1
 
-      # This package passes `:engine', which the backend on MELPA
-      # (0.9.0) does not accept, so the backend is checked out at its main
-      # branch instead of installed from MELPA.  Restore the MELPA install
-      # once the backend is released with it.
-      - name: Check out the backend at its main branch
-        uses: actions/checkout@v4
-        with:
-          repository: alberti42/latex-to-svg-backend
-          ref: main
-          path: latex-to-svg-backend
-
       - name: Byte-compile, warnings as errors
         run: |
           emacs -Q -batch \
             --eval '(progn (require (quote package)) (package-initialize))' \
             --eval '(setq byte-compile-error-on-warn t)' \
-            -L . -L latex-to-svg-backend \
-            -f batch-byte-compile agent-shell-math-renderer.el
+            -L . -f batch-byte-compile agent-shell-math-renderer.el
 
       # Docstring conventions, exiting non-zero on any finding.  Both flags
       # are set rather than left at their defaults, so the step reports the
@@ -107,6 +95,5 @@ jobs:
         run: |
           emacs -Q -batch \
             --eval '(progn (require (quote package)) (package-initialize))' \
-            -L . -L latex-to-svg-backend \
-            -l ert -l tests/agent-shell-math-renderer-tests.el \
+            -L . -l ert -l tests/agent-shell-math-renderer-tests.el \
             -f ert-run-tests-batch-and-exit
