@@ -7,7 +7,7 @@
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.11.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.10.0"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.66.1") (latex-to-svg-backend "0.11.1"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -1014,9 +1014,22 @@ is reused from cache).
 With RECOMPILE non-nil, first delete each region's cache entry with
 `latex-to-svg-backend-invalidate', for the engine and for its fallback
 when there is one, so the equation is compiled again.  That also
-deletes a failure record, so an engine that failed is tried again."
+deletes a failure record, so an engine that failed is tried again.
+When the engine or its fallback is `latex', the buffer's `.fmt' file is
+deleted too (`latex-to-svg-backend-invalidate-format'): it holds the
+files the preamble loads as they were when it was dumped, so an edit to
+one, such as the `macros.tex' of an `\\input{macros.tex}', would not
+reach the recompiled equations.  The next compile dumps it again."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
+      (when (and recompile
+                 (memq 'latex
+                       (list agent-shell-math-renderer-engine
+                             (agent-shell-math-renderer--fallback-for
+                              agent-shell-math-renderer-engine)))
+                 (text-property-not-all (point-min) (point-max)
+                                        'agent-shell-math-renderer-source nil))
+        (latex-to-svg-backend-invalidate-format))
       (save-excursion
         (let ((pos (point-min)))
           (while (setq pos (text-property-not-all
@@ -1072,34 +1085,42 @@ fast and untouched buffers refresh lazily when next displayed."
     agent-shell-math-renderer-padding
     agent-shell-math-renderer-inline-rescale
     agent-shell-math-renderer-display-rescale
-    agent-shell-math-renderer-center-display-math)
+    agent-shell-math-renderer-center-display-math
+    latex-to-svg-backend-preamble
+    latex-to-svg-backend-appended-preamble
+    latex-to-svg-backend-preamble-not-precompiled
+    latex-to-svg-backend-line-width
+    latex-to-svg-backend-ratex-macros)
   "Options whose change updates the equations on its own.
-Each has a variable watcher (`agent-shell-math-renderer--option-changed').")
+Each has a variable watcher (`agent-shell-math-renderer--option-changed').
+The last five are the backend's options in the cache key, which a
+project sets in `.dir-locals.el'.")
 
 (defvar agent-shell-math-renderer--option-buffers nil
-  "Buffers to update after an option changed: a list, or t for all.")
+  "Buffers whose local value of a watched option changed, to update.")
+
+(defvar agent-shell-math-renderer--option-defaults nil
+  "Watched options whose default value changed.
+The buffers that use the default value of one of them are updated.")
 
 (defvar agent-shell-math-renderer--option-timer nil
   "Timer of the pending update after an option changed, or nil.")
 
 (defun agent-shell-math-renderer--option-changed
-    (_symbol _newval operation where)
-  "Schedule the update after one of `--watched-options' changed.
+    (symbol _newval operation where)
+  "Schedule the update after SYMBOL, one of `--watched-options', changed.
 A variable watcher: OPERATION is how it changed and WHERE the buffer
 whose local value changed, or nil for the default value.  A change of
 the default value (`setq' of a global value, `setq-default', Customize)
-updates every buffer with equations; a buffer-local one (`setq-local')
-updates that buffer.  A let-binding updates nothing.  The watcher runs
-before the value is set, so the update runs from a timer, which also
-takes several changes in one go (a block of `setq's in an init file)."
+updates every buffer with equations that has no local value of SYMBOL;
+a buffer-local one (`setq-local', `.dir-locals.el') updates that buffer.
+A let-binding updates nothing.  The watcher runs before the value is
+set, so the update runs from a timer, which also takes several changes
+in one go (a block of `setq's in an init file)."
   (when (eq operation 'set)
-    (setq agent-shell-math-renderer--option-buffers
-          (cond ((or (null where)
-                     (eq agent-shell-math-renderer--option-buffers t))
-                 t)
-                ((memq where agent-shell-math-renderer--option-buffers)
-                 agent-shell-math-renderer--option-buffers)
-                (t (cons where agent-shell-math-renderer--option-buffers))))
+    (if where
+        (cl-pushnew where agent-shell-math-renderer--option-buffers)
+      (cl-pushnew symbol agent-shell-math-renderer--option-defaults))
     (unless (timerp agent-shell-math-renderer--option-timer)
       (setq agent-shell-math-renderer--option-timer
             (run-at-time
@@ -1107,14 +1128,21 @@ takes several changes in one go (a block of `setq's in an init file)."
 
 (defun agent-shell-math-renderer--update-after-option ()
   "Re-render the buffers `--option-changed' collected.
-Only buffers with rendered equations are re-rendered (see
-`agent-shell-math-renderer--refresh-buffer')."
-  (let ((buffers agent-shell-math-renderer--option-buffers))
+That is each buffer with rendered equations whose local value of a
+watched option changed, or that has no local value of an option whose
+default changed (see `agent-shell-math-renderer--refresh-buffer')."
+  (let ((buffers agent-shell-math-renderer--option-buffers)
+        (defaults agent-shell-math-renderer--option-defaults))
     (setq agent-shell-math-renderer--option-buffers nil
+          agent-shell-math-renderer--option-defaults nil
           agent-shell-math-renderer--option-timer nil)
-    (dolist (buf (if (eq buffers t) (buffer-list) buffers))
+    (dolist (buf (if defaults (buffer-list) buffers))
       (when (and (buffer-live-p buf)
-                 (buffer-local-value 'agent-shell-math-renderer--present buf))
+                 (buffer-local-value 'agent-shell-math-renderer--present buf)
+                 (or (memq buf buffers)
+                     (seq-some (lambda (option)
+                                 (not (local-variable-p option buf)))
+                               defaults)))
         (agent-shell-math-renderer--refresh-buffer buf)))))
 
 (dolist (option agent-shell-math-renderer--watched-options)

@@ -942,8 +942,9 @@ is fixed, so no graphical frame is needed."
 
 (ert-deftest agent-shell-math-renderer-option-watcher-queues-buffers ()
   ;; Setting a watched option queues the buffers to update, on one timer: a
-  ;; `setq-local' that buffer, a `setq-default' every buffer, a `let' none.
+  ;; `setq-local' that buffer, a `setq-default' the option, a `let' none.
   (let ((agent-shell-math-renderer--option-buffers nil)
+        (agent-shell-math-renderer--option-defaults nil)
         (agent-shell-math-renderer--option-timer nil)
         (scheduled 0))
     (cl-letf (((symbol-function 'run-at-time)
@@ -962,8 +963,40 @@ is fixed, so no graphical frame is needed."
         (unwind-protect
             (setq-default agent-shell-math-renderer-padding 3)
           (set-default 'agent-shell-math-renderer-padding old)))
-      (should (eq t agent-shell-math-renderer--option-buffers))
+      (should (equal agent-shell-math-renderer--option-defaults
+                     '(agent-shell-math-renderer-padding)))
       (should (= 1 scheduled)))))
+
+(ert-deftest agent-shell-math-renderer-option-default-skips-buffers-with-own-value ()
+  ;; A change of `latex-to-svg-backend-preamble-not-precompiled''s default
+  ;; updates the chats that use the default, not a chat with its own value
+  ;; (set by its `.dir-locals.el').  A buffer-local change updates that chat.
+  (let ((agent-shell-math-renderer--option-buffers nil)
+        (agent-shell-math-renderer--option-defaults nil)
+        (agent-shell-math-renderer--option-timer nil)
+        (updated nil)
+        (own (generate-new-buffer " own"))
+        (uses-default (generate-new-buffer " uses-default")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'run-at-time) (lambda (&rest _) nil))
+                  ((symbol-function 'agent-shell-math-renderer--refresh-buffer)
+                   (lambda (buf &rest _) (push buf updated))))
+          (dolist (buf (list own uses-default))
+            (with-current-buffer buf
+              (setq agent-shell-math-renderer--present t)))
+          (with-current-buffer own
+            (setq-local latex-to-svg-backend-preamble-not-precompiled
+                        "\\input{m}"))
+          (should (equal agent-shell-math-renderer--option-buffers (list own)))
+          (agent-shell-math-renderer--update-after-option)
+          (should (equal updated (list own)))
+          (setq updated nil)
+          (let ((latex-to-svg-backend-preamble-not-precompiled ""))
+            (setq latex-to-svg-backend-preamble-not-precompiled "\\input{g}")
+            (agent-shell-math-renderer--update-after-option)
+            (should (equal updated (list uses-default)))))
+      (kill-buffer own)
+      (kill-buffer uses-default))))
 
 (ert-deftest agent-shell-math-renderer-option-update-renders-new-value ()
   ;; The timer's function re-renders the queued buffers that have equations,
@@ -988,11 +1021,13 @@ is fixed, so no graphical frame is needed."
 (ert-deftest agent-shell-math-renderer-refresh-recompiles-with-prefix ()
   ;; RECOMPILE (`C-u') invalidates each equation's string with the engine, and
   ;; with the fallback too when there is one, then renders it again -- in the
-  ;; current buffer only.
-  (dolist (case '((latex t (latex))
-                  (ratex t (ratex latex))
-                  (ratex nil (ratex))))
+  ;; current buffer only.  It deletes the buffer's `.fmt' file once when the
+  ;; engine or the fallback is LaTeX.
+  (dolist (case '((latex t (latex) 1)
+                  (ratex t (ratex latex) 1)
+                  (ratex nil (ratex) 0)))
     (let ((invalidated '())
+          (formats 0)
           (rendered '())
           (other (generate-new-buffer " other"))
           (agent-shell-math-renderer-engine (nth 0 case))
@@ -1001,6 +1036,8 @@ is fixed, so no graphical frame is needed."
           (cl-letf (((symbol-function 'latex-to-svg-backend-invalidate)
                      (lambda (doc &optional engine)
                        (push (list doc engine) invalidated)))
+                    ((symbol-function 'latex-to-svg-backend-invalidate-format)
+                     (lambda () (cl-incf formats)))
                     ((symbol-function 'agent-shell-math-renderer--render)
                      (lambda (buffer _start _end latex &optional _inline)
                        (push (cons buffer latex) rendered))))
@@ -1018,6 +1055,7 @@ is fixed, so no graphical frame is needed."
                              (list (cons (current-buffer) "a")
                                    (cons (current-buffer) "b"))))))
         (kill-buffer other))
+      (should (= formats (nth 3 case)))
       (should (equal (nreverse invalidated)
                      (append
                       (mapcar (lambda (e) (list "\\[ a \\]" e)) (nth 2 case))

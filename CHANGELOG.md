@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Setting one of the backend's options in the cache key that a project sets
+  in `.dir-locals.el` (`latex-to-svg-backend-preamble`,
+  `latex-to-svg-backend-appended-preamble`,
+  `latex-to-svg-backend-preamble-not-precompiled`,
+  `latex-to-svg-backend-line-width`, `latex-to-svg-backend-ratex-macros`)
+  updates the equations on its own, like this package's own options: a
+  buffer-local value (from `.dir-locals.el`) updates that chat, a default
+  value every chat that uses it.
+
+### Changed
+
+- Requires `latex-to-svg-backend` 0.11.1, which reads its preamble options in
+  the buffer that asks for an equation: a chat started in a project typesets
+  with the project's preamble from `.dir-locals.el`.
+- A change of an option's default value no longer updates a chat that has
+  its own local value of that option, since the change does not reach it.
+- `C-u M-x agent-shell-math-renderer-refresh` also deletes the buffer's
+  `.fmt` file (`latex-to-svg-backend-invalidate-format`) when the engine or
+  its fallback is `latex`. The file holds the files the preamble loads as
+  they were when it was dumped, so before, an edit to one, such as the
+  `macros.tex` of an `\input{macros.tex}`, did not reach the recompiled
+  equations. The next compile dumps it again.
+- The README says how a chat takes a project's preamble from
+  `.dir-locals.el` and how to trust the project's directory.
+
 ## [0.11.0] - 2026-09-27
 
 ### Added

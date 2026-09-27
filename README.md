@@ -71,8 +71,9 @@ switch re-tints with no recompile. Sizing tracks the buffer font.
 - **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.66.1 or newer —
   the release with the backslash-escape pass and the right-label render-function
   suppression the hook relies on)
-- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.10.0
-  or newer — the
+- **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.11.1
+  or newer (the release that reads its preamble options in the buffer that asks
+  for an equation, so a chat's `.dir-locals.el` reaches the compile) — the
   backend (equation compile, caching, display-time tint/scale) is
   factored out into this standalone library. All typesetting knobs (LaTeX /
   dvisvgm / RaTeX programs, preamble, cache directory, font scale, placeholder /
@@ -244,9 +245,25 @@ The same works for the other side-effect-free options (`-delimiters`,
 `-inline-rescale`, `-display-rescale`, the color/box options, and the backend's
 `latex-to-svg-backend-font-scale`).
 The backend's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
-`-dvisvgm-program`, `-preamble`, `-appended-preamble`, `-cache-directory`) are
+`-dvisvgm-program`, `-preamble`, `-appended-preamble`, `-preamble-not-precompiled`,
+`-cache-directory`) are
 **not** marked safe — a `.dir-locals.el` lives inside the repo, and those feed a
 compiler or run a program, so Emacs will ask before applying them.
+
+A chat started in a project typesets its equations with the project's preamble
+from `.dir-locals.el`, set in `latex-to-svg-backend-appended-preamble` (for
+packages) or `latex-to-svg-backend-preamble-not-precompiled` (enough for
+macros), such as
+`((nil . ((latex-to-svg-backend-preamble-not-precompiled . "\\input{macros.tex}"))))`
+for a file of macros. The backend README's
+[A project's preamble](https://github.com/alberti42/latex-to-svg-backend#a-projects-preamble)
+compares the two options and gives the details. Answering `!` to Emacs's
+question trusts only that exact value: the next edit of the string asks again.
+For a project you trust, list its directory, the one holding `.dir-locals.el`,
+in `safe-local-variable-directories` (Emacs 30.1+); Emacs then applies that
+`.dir-locals.el` without asking. After editing `macros.tex`, run
+`C-u M-x agent-shell-math-renderer-refresh` in the chat: it deletes the
+buffer's `.fmt` file and compiles its equations again.
 
 ### Tip: tell the agent to use `\(…\)` for inline math
 
@@ -365,7 +382,9 @@ automatically:
   (`C-u M-x agent-shell-math-renderer-refresh`) it recompiles the equations
   in the current buffer instead, bypassing the cache: the way to retry after
   a fix the cache cannot see, such as installing a missing TeX package or
-  upgrading RaTeX. Setting an option with `setq`, `setq-local` or Customize
+  upgrading RaTeX. When the engine or its fallback is LaTeX, it also deletes
+  the buffer's `.fmt` file, so an edit to a file the preamble loads reaches the
+  recompiled equations. Setting an option with `setq`, `setq-local` or Customize
   updates the equations on its own, with no refresh.
 
 ## Customization
@@ -423,11 +442,15 @@ These options update the equations on their own when you set them, with
 | `agent-shell-math-renderer-foreground-color`, `-background-color`, `-padding` | the pictures are redrawn from cache |
 | `agent-shell-math-renderer-inline-rescale`, `-display-rescale` | the pictures are redrawn from cache |
 | `agent-shell-math-renderer-center-display-math` | the pictures are redrawn from cache |
+| `latex-to-svg-backend-preamble`, `-appended-preamble`, `-preamble-not-precompiled` | the equations are compiled with the new preamble, or taken from cache if compiled with it before |
+| `latex-to-svg-backend-line-width` | the numbered equations are compiled with the new width, or taken from cache if compiled with it before |
+| `latex-to-svg-backend-ratex-macros` | the equations typeset with RaTeX are compiled with the new macros, or taken from cache if compiled with them before |
 
 Where the change applies depends on how you make it:
 
 - **A global value** (`setq` of a variable with no buffer-local value,
-  `setq-default`, Customize) updates **every open chat** with equations.
+  `setq-default`, Customize) updates **every open chat** with equations that
+  has no buffer-local value of that option.
 - **A buffer-local value** (`setq-local`, or `.dir-locals.el`, which a chat
   started in a project inherits) updates only that chat.
 - **A `let`-binding** updates nothing.
