@@ -28,6 +28,10 @@ jobs:
   melpazoid:
     runs-on: ubuntu-latest
     name: MELPA checks
+    # A run takes about 3 minutes.  Without a limit, a hung apt-get in
+    # "Install melpazoid" keeps the job running for GitHub's default of
+    # 6 hours.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
