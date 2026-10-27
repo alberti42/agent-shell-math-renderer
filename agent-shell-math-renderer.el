@@ -6,7 +6,7 @@
 ;; Maintainer: Andrea Alberti <a.alberti82@gmail.com>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
-;; Version: 0.17.0
+;; Version: 0.17.1
 ;; Package-Requires: ((emacs "29.1") (agent-shell "0.89.4") (latex-to-svg-backend "0.18.0"))
 ;; Keywords: tex, llm, math, education
 
@@ -87,7 +87,7 @@
 (require 'map)
 (require 'seq)
 
-(defconst agent-shell-math-renderer-version "0.17.0"
+(defconst agent-shell-math-renderer-version "0.17.1"
   "The version of the loaded package, as in the `Version:' header.")
 
 (defconst agent-shell-math-renderer--backend-version "0.18.0"
