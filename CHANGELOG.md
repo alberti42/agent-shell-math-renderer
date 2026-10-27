@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Requires agent-shell 0.89.4 or newer. Since that release agent-shell
+  leaves the text after a render function's watermark untouched for the
+  rest of the chunk (xenodium/agent-shell#915), so the package no longer
+  freezes an equation that is still streaming to keep agent-shell's
+  escape pass from turning `\(` into `(` or `\[` into `[`.
+
 ## [0.17.0] - 2026-10-23
 
 ### Added

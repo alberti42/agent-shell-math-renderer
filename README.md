@@ -76,11 +76,12 @@ inline equation in a heading has the heading's color and size.
 ## Requirements
 
 - **Emacs 29.1+**
-- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.89.1 or newer —
-  the release with `agent-shell-prompt-ranges`, which finds the prompts of a
-  restored session; the backslash-escape pass, the right-label render-function
-  suppression the hook relies on, and the `session-restored` event came in
-  earlier releases)
+- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.89.4 or newer —
+  the release that leaves the text after a render function's watermark
+  untouched for the rest of the chunk; `agent-shell-prompt-ranges`, which
+  finds the prompts of a restored session, the backslash-escape pass, the
+  right-label render-function suppression the hook relies on, and the
+  `session-restored` event came in earlier releases)
 - **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.18.0
   or newer (the release with the option names and the file list the README uses, and the version constant this package checks when it is loaded) — the backend (equation compile, caching, display-time tint/scale)
   is factored out into this standalone library. All typesetting knobs (LaTeX /

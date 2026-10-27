@@ -536,14 +536,14 @@ E=mc^2
       (should (equal (buffer-substring-no-properties start end)
                      "a\\\\)b")))))
 
-(ert-deftest agent-shell-math-renderer-escaped-inline-tail-not-protected ()
+(ert-deftest agent-shell-math-renderer-escaped-inline-tail-no-watermark ()
   ;; An escaped opener is no opener, so there is no still-streaming inline
-  ;; tail to freeze: `--protect-inline-tail' must return nil rather than
-  ;; freeze the rest of the buffer (which would also block the escape pass
-  ;; from ever unescaping the literal).
+  ;; tail: `--inline-tail' must return nil rather than hold the frontier
+  ;; (which would also keep the escape pass from ever unescaping the
+  ;; literal).
   (with-temp-buffer
     (insert "\\\\(t=0")
-    (should-not (agent-shell-math-renderer--protect-inline-tail nil))))
+    (should-not (agent-shell-math-renderer--inline-tail nil))))
 
 (ert-deftest agent-shell-math-renderer-inline-math-in-inline-code-untouched ()
   ;; A `\\(...\\)' inside an inline-code span is literal code, not math:
@@ -659,10 +659,11 @@ after text.
   ;; different streaming chunks must still render.  agent-shell 0.66.1+
   ;; unescapes an unclaimed `\(' (`\(' -> `(') during its CommonMark
   ;; escape pass, which would destroy the opener before the closer
-  ;; streams in.  `--protect-inline-tail' freezes the still-open opener
-  ;; each chunk (lifting it again next chunk via `--release-inline-pending')
-  ;; so the delimiter survives and the completed span renders.  Stream at
-  ;; several chunk sizes to hit the boundary that splits the span.
+  ;; streams in.  The watermark `--inline-tail' returns at the still-open
+  ;; opener makes agent-shell (0.89.4+) leave the tail alone for the rest
+  ;; of the chunk, so the delimiter survives and the completed span
+  ;; renders.  Stream at several chunk sizes to hit the boundary that
+  ;; splits the span.
   (agent-shell-math-renderer-tests--enabled
     (dolist (step '(1 2 3 5 40 100))
       (let ((rendered
