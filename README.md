@@ -49,6 +49,7 @@ by the author, and design decisions are the author's.
 | Dollar display math | `$$ E = mc^2 $$` | on |
 | Fenced math | ```` ```math ```` blocks | on |
 | Inline math | `\(x^2\)` | on |
+| Inline dollar math | `$x^2$` | on |
 
 - **Display delimiters** are matched only at **block level** — the opener must
   start its line and the closer must be flush — which is what makes `$$…$$`
@@ -63,8 +64,15 @@ by the author, and design decisions are the author's.
   `tikzpicture` — which belongs in a code block. Add them via
   `agent-shell-math-renderer-fence-languages` if your agent emits bare display
   math under those tags.
-- **Inline `$…$` is intentionally not matched** — a lone `$` is too common in
-  prose to detect safely. Use `\(…\)` for inline math.
+- **Inline math** (`\(…\)` and `$…$`) is matched anywhere on a line, and the
+  closer must be on the same line as the opener.
+- **Inline `$…$` follows pandoc's guards**, as the `latex-to-svg` front-end
+  does: an opening `$` must be followed by a non-space, a closing `$` preceded
+  by a non-space and not followed by a digit, and an escaped `\$` is ignored.
+  So currency like "$30 and $50" or "$100-$200" is not mistaken for math. What
+  still slips through is shell variables such as "$HOME/$USER" outside inline
+  code; set `agent-shell-math-renderer-render-inline-dollar` to `nil` if your
+  agent writes them in prose.
 - Math inside code fences and inline `` `code` `` spans is left untouched.
 
 Images are **theme-aware**: the SVG is compiled once, color-independent, and
@@ -252,7 +260,7 @@ minor mode from `.dir-locals.el` uses an `eval` entry:
 Emacs will ask once to confirm the `eval` (or mark it safe).
 
 The same works for the other side-effect-free options (`-delimiters`,
-`-fence-languages`, `-render-inline`, `-engine`, `-fallback`, `-quiet`,
+`-fence-languages`, `-render-inline`, `-render-inline-dollar`, `-engine`, `-fallback`, `-quiet`,
 `-rescale-inline`, `-rescale-display`, the color/box options, and the backend's
 `latex-to-svg-backend-font-scale`).
 The backend's toolchain and preamble options (`latex-to-svg-backend-latex-program`,
@@ -300,21 +308,18 @@ Emacs then applies that `.dir-locals.el` without asking.
   `C-u M-x agent-shell-math-renderer-refresh` in the chat: it deletes the
   buffer's `.fmt` file and compiles its equations again.
 
-### Tip: tell the agent to use `\(…\)` for inline math
+### Tip: tell the agent not to put inline math in backticks
 
-Inline math renders **only** when the agent emits it as `\(…\)`. Two common
-alternatives are deliberately left alone:
-
-- **Markdown inline code** (`` `x^2` ``) — code spans are never treated as math,
-  so math wrapped in backticks stays literal code. (This is on purpose: it lets
-  the agent show a literal `` `\(x\)` `` when it means the source, not the
-  equation.)
-- **Inline `$…$`** — not matched, because a lone `$` is too common in prose.
+Inline math renders when the agent emits it as `\(…\)` or `$…$`. **Markdown
+inline code** (`` `x^2` ``) is deliberately left alone: code spans are never
+treated as math, so math wrapped in backticks stays literal code. (This is on
+purpose: it lets the agent show a literal `` `\(x\)` `` when it means the
+source, not the equation.)
 
 Many agents default to wrapping inline math in backticks, which then won't
 render. If yours does, add an instruction to its prompt or project rules:
 
-> For inline math, use the delimiters `\(` and `\)` — not markdown inline code.
+> For inline math, use the delimiters `\(` and `\)` or `$` — not markdown inline code.
 
 (Display math — `\[…\]`, `$$…$$`, and ```` ```math ```` fences — is unaffected;
 this tip is only about *inline* math.)
@@ -456,17 +461,18 @@ group (`M-x customize-group RET agent-shell-math-renderer`):
 | `agent-shell-math-renderer-delimiters` | `(bracket dollar)` | Which display delimiters to recognize: `bracket` (`\[…\]`) and/or `dollar` (`$$…$$`). |
 | `agent-shell-math-renderer-fence-languages` | `("math")` | Fenced-code languages rendered as display math. Add `"latex"`/`"tex"` if your agent emits display math under those tags; `nil` leaves every fence as code. |
 | `agent-shell-math-renderer-render-inline` | `t` | Recognize inline `\(…\)` math. |
+| `agent-shell-math-renderer-render-inline-dollar` | `t` | Recognize inline `$…$` math, under pandoc's guards against currency. |
 | `agent-shell-math-renderer-engine` | `latex` | Engine that typesets the equations: `latex` (`latex` + `dvisvgm`), `ratex` (RaTeX's `render-svg`) or `texres` (the `pdflatex` of texres + `pdftocairo`). See [Engine](#engine). Setting it updates the equations on its own. |
 | `agent-shell-math-renderer-fallback` | `t` | Typeset with LaTeX an equation the engine rejects, when the engine is `ratex`. See [Falling back to LaTeX](#falling-back-to-latex). |
 | `agent-shell-math-renderer-quiet` | `nil` | Drop the backend's warning about an equation it cannot typeset. Configuration problems still warn. See [Quiet failures](#quiet-failures). |
 | `agent-shell-math-renderer-failure-mark` | `t` | Show a warning icon before an equation that no engine could typeset. See [Failed equations](#failed-equations). |
-| `agent-shell-math-renderer-rescale-inline` | `1.0` | Size multiplier for inline `\(…\)` math, on top of the backend's `latex-to-svg-backend-font-scale`. Re-scales from cache; setting it updates the equations on its own. |
+| `agent-shell-math-renderer-rescale-inline` | `1.0` | Size multiplier for inline math (`\(…\)`, `$…$`), on top of the backend's `latex-to-svg-backend-font-scale`. Re-scales from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-rescale-display` | `1.0` | Size multiplier for display math (`\[…\]`, `$$…$$`, fenced), on top of `latex-to-svg-backend-font-scale`. Re-scales from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-foreground-color` | `nil` | Color of equations in text drawn in the default foreground. An equation in colored text (a heading, a link) keeps the color of that text. `nil` follows the foreground of the `default` face on the frame that shows the buffer (tracks the theme). A name that frame cannot resolve, or a value that is not a string, is reported with a warning and treated as `nil`. Re-tints from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-foreground-ignored-faces` | `nil` | Faces whose foreground the color of an equation does not follow: the next face of the text with a foreground is used, else `agent-shell-math-renderer-foreground-color`. With `agent-shell-markdown-header-1` or `agent-shell-markdown-link` in it, an equation in a heading or a link keeps the color of the text around it. Setting it updates the equations on its own. |
 | `agent-shell-math-renderer-background-color` | `nil` | Box color painted behind equations; `nil` is transparent. A very light gray reads best (e.g. `gray97` / `#f7f7f7`) — keep it subtle. A name the frame that shows the buffer cannot resolve, or a value that is not a string, is reported with a warning and treated as `nil`. Re-boxes from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-center-display-math` | `nil` | Center display-math equations in the window (inline math is never centered). Replaces agent-shell's indentation on that line, since the position is measured from the window. Setting it updates the equations on its own. |
-| `agent-shell-math-renderer-padding-inline` | `nil` | Padding (pt) between an inline `\(…\)` equation and the box edge. A number applies to all four sides; a list of four numbers pads each side separately — `(TOP RIGHT BOTTOM LEFT)`, so `(0 0 0 6)` is a left gutter. `0` crops to the ink; `nil` takes the value of the obsolete `agent-shell-math-renderer-padding`. Re-renders from cache; setting it updates the equations on its own. |
+| `agent-shell-math-renderer-padding-inline` | `nil` | Padding (pt) between an inline equation (`\(…\)`, `$…$`) and the box edge. A number applies to all four sides; a list of four numbers pads each side separately — `(TOP RIGHT BOTTOM LEFT)`, so `(0 0 0 6)` is a left gutter. `0` crops to the ink; `nil` takes the value of the obsolete `agent-shell-math-renderer-padding`. Re-renders from cache; setting it updates the equations on its own. |
 | `agent-shell-math-renderer-padding-display` | `nil` | Padding (pt) between a display equation (`\[…\]`, `$$…$$`, fenced) and the box edge, with the values of `-padding-inline`. Re-renders from cache; setting it updates the equations on its own. |
 
 The **backend** options (equation size, toolchain, preamble, caching) live

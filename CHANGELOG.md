@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Inline math `$…$` is rendered, on by default; turn it off with
+  `agent-shell-math-renderer-render-inline-dollar`. A `$` counts under
+  pandoc's guards, as in the `latex-to-svg` front-end: an opening `$` must
+  be followed by a non-space, a closing `$` preceded by a non-space and not
+  followed by a digit, and an escaped `\$` is ignored, so currency like
+  "$30 and $50" stays text. As for `\(…\)`, the closer must be on the same
+  line as the opener.
+
 ### Fixed
 
 - An inline equation that ends a heading, or sits in a table's last row,

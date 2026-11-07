@@ -34,10 +34,11 @@
 ;;   bracket  `\[X\]'    (default; unambiguous)
 ;;   dollar   `$$X$$'    (default; safe because matched block-level only)
 ;;
-;; Inline math `\(X\)' is recognized separately (toggle
-;; `agent-shell-math-renderer-render-inline', default on) and typeset
-;; in text style.  Inline `$X$' is intentionally not matched — a lone
-;; `$' is too common in prose to be safe.
+;; Inline math `\(X\)' and `$X$' is recognized separately (toggles
+;; `agent-shell-math-renderer-render-inline' and
+;; `agent-shell-math-renderer-render-inline-dollar', both default on)
+;; and typeset in text style.  A `$' counts only under pandoc's guards
+;; against currency.
 ;;
 ;; The raw LaTeX is kept in the buffer (so copy / save round-trips the
 ;; source) and, on a graphical display, an equation image is layered on
@@ -119,7 +120,7 @@ Update %s to %s or newer, then restart Emacs"
 (defgroup agent-shell-math-renderer nil
   "Render LaTeX math in agent-shell's streamed markdown output.
 Display equations (`\\=\\[...\\]', `$$...$$', and ```math fences) and
-inline `\\(...\\)' are compiled to SVG, by `latex' + `dvisvgm' or
+inline `\\(...\\)' and `$...$' are compiled to SVG, by `latex' + `dvisvgm' or
 by RaTeX (see `agent-shell-math-renderer-engine'), and overlaid on
 the raw LaTeX (kept in the buffer so copy/save round-trips the
 source)."
@@ -165,9 +166,11 @@ Both styles are matched only as block-level equations: the opener
 must start its line (after optional indentation) and the closer
 must be flush — either start or end its line.  Genuinely inline
 display math is therefore not recognized (agents don't emit it,
-and truly inline math should use `\\(...\\)' / `$...$', which are
-left untouched).  That anchoring makes `$$' safe enough to enable
-by default; set to \\='(bracket) to drop it if `$$' still
+and truly inline math should use `\\(...\\)' / `$...$', which have
+their own options, `agent-shell-math-renderer-render-inline' and
+`agent-shell-math-renderer-render-inline-dollar').  That anchoring
+makes `$$' safe enough to enable by default; set to \\='(bracket) to
+drop it if `$$' still
 collides with your prose."
   :type '(set (const bracket) (const dollar))
   :safe (lambda (v)
@@ -227,10 +230,35 @@ line break — the closer must appear on the same line as the
 opener, which bounds the match and keeps a stray `\\(' from
 swallowing the rest of a streaming response.
 
-Inline `$...$' is deliberately NOT recognized: a lone `$' is far
-too common in prose, currency, and shell snippets to match safely.
-Only the unambiguous `\\(...\\)' form is detected; `$...$' support
-can be added later if agents prove to need it."
+Inline `$...$' has its own option,
+`agent-shell-math-renderer-render-inline-dollar'."
+  :type 'boolean
+  :safe #'booleanp
+  :group 'agent-shell-math-renderer)
+
+(defcustom agent-shell-math-renderer-render-inline-dollar t
+  "When non-nil, recognize inline math `$...$' in agent responses.
+
+Only effective when `agent-shell-math-renderer-mode' is on.  As for
+`\\(...\\)' (see `agent-shell-math-renderer-render-inline'), the span
+is matched anywhere on a line, and the closer must appear on the same
+line as the opener.
+
+`$' is the least reliable delimiter, since it also occurs in prose
+\(prices, shell variables).  The scanner applies pandoc's guards, as the
+`latex-to-svg' front-end does — an opening `$' must be followed by a
+non-space, a closing `$' preceded by a non-space and not followed by a
+digit, and an escaped `\\$' is ignored — and, as in TeX, the first `$'
+after an opening one ends the span.  So currency like \"$30 and $50\"
+or \"$100-$200\" is not mistaken for math, and does not pair with the
+`$' of an equation later on the line.  Math directly followed by a
+digit, such as `$x$2', is not detected either.  What still slips
+through is shell variables such as \"$HOME/$USER\" outside inline
+code; set this to nil if your agent writes them in prose.
+
+While an opening `$' on the last line of a streaming response has no
+closing `$' yet, the rest of that line is left as it streamed in,
+unrendered, until the closing `$' or the end of the line arrives."
   :type 'boolean
   :safe #'booleanp
   :group 'agent-shell-math-renderer)
@@ -387,7 +415,7 @@ be told from setting its option: both are one variable.")
   'agent-shell-math-renderer-rescale-display "0.12.0")
 
 (defcustom agent-shell-math-renderer-rescale-inline 1.0
-  "Size multiplier for inline math previews (`\\(...\\)').
+  "Size multiplier for inline math previews (`\\(...\\)', `$...$').
 Applied on top of the backend's global `latex-to-svg-backend-font-scale' via
 `latex-to-svg-backend's `:rescale-by'.  Re-scales from cache (no
 recompile).  Setting it with `setq', `setq-local' or Customize updates the
@@ -518,7 +546,7 @@ The values are the same as theirs."
  "0.12.0")
 
 (defcustom agent-shell-math-renderer-padding-inline nil
-  "Padding (in pt) added around inline math (`\\(...\\)').
+  "Padding (in pt) added around inline math (`\\(...\\)', `$...$').
 
 Grows the box beyond the equation ink, so the ink is not flush
 against the box edge, and scales with the equation.  Either a
@@ -567,8 +595,9 @@ This option has an effect only when
 
 The usual delimiter and inline settings apply: prompts render
 `\\=\\[...\\]' / `$$...$$' according to
-`agent-shell-math-renderer-delimiters', and inline `\\(...\\)'
-according to `agent-shell-math-renderer-render-inline'.
+`agent-shell-math-renderer-delimiters', and inline `\\(...\\)' and
+`$...$' according to `agent-shell-math-renderer-render-inline' and
+`agent-shell-math-renderer-render-inline-dollar'.
 
 This uses agent-shell's existing `input-submitted' event and
 shell-maker/comint's `comint-last-input-start' /
@@ -753,20 +782,95 @@ render functions."
                             2))))
     found))
 
-(defun agent-shell-math-renderer--inline-spans (&optional avoid-ranges)
-  "Return inline-math spans `\\(...\\)' in the current buffer.
+(defun agent-shell-math-renderer--inline-open-regexp ()
+  "Return a regexp matching the enabled inline openers, or nil.
+`\\(' when `agent-shell-math-renderer-render-inline' is on, `$' when
+`agent-shell-math-renderer-render-inline-dollar' is on."
+  (when-let* ((openers
+               (append (and agent-shell-math-renderer-render-inline
+                            (list (regexp-quote
+                                   agent-shell-math-renderer--inline-open)))
+                       (and agent-shell-math-renderer-render-inline-dollar
+                            (list (regexp-quote "$"))))))
+    (string-join openers "\\|")))
+
+(defun agent-shell-math-renderer--bracket-close (from eol avoid-ranges streaming)
+  "Return the end of the `\\)' closing a `\\(' that ends at FROM.
+Only the line, up to EOL, is searched.  A closer inside AVOID-RANGES
+is protected text and is skipped, and so is an escaped one: Markdown
+escaping is applied uniformly, so an escaped `\\)' stays body (it
+reaches LaTeX as `\\\\)', a line break followed by a paren).  With no
+closer, return `pending' when STREAMING and the line is the buffer's
+last (the closer may still stream in), else nil."
+  (save-excursion
+    (goto-char from)
+    (let ((close-re (regexp-quote agent-shell-math-renderer--inline-close))
+          (close-end nil))
+      (while (and (not close-end)
+                  (agent-shell-math-renderer--re-search-unescaped-forward
+                   close-re eol))
+        (if-let* ((in (agent-shell-markdown-in-avoid-range-p
+                       (match-beginning 0) (match-end 0) avoid-ranges)))
+            (goto-char (min (cdr in) eol))
+          (setq close-end (match-end 0))))
+      (or close-end
+          (and streaming (= eol (point-max)) 'pending)))))
+
+(defun agent-shell-math-renderer--dollar-close (from eol avoid-ranges streaming)
+  "Return the end of the `$' closing a `$' that ends at FROM.
+Only the line, up to EOL, is searched.  Follows the guards of
+`agent-shell-math-renderer-render-inline-dollar': nil when a space
+follows the opening `$'; else the first `$' after it closes the span,
+skipping an escaped `\\$', a `$$' and a `$' inside AVOID-RANGES, but
+only when no space precedes it and no digit follows it, and otherwise
+there is no span.  When STREAMING, return `pending' where the text
+still to stream in decides: the opening `$' ends the buffer, no `$'
+follows it on the buffer's last line, or the closing `$' ends the
+buffer (a digit or a second `$' may follow)."
+  (let ((after-open (char-after from)))
+    (cond
+     ((null after-open) (and streaming 'pending))
+     ((memq after-open '(?\s ?\t ?\n)) nil)
+     (t
+      (save-excursion
+        (goto-char from)
+        (catch 'done
+          (while (agent-shell-math-renderer--re-search-unescaped-forward
+                  "\\$" eol)
+            (let ((p (match-beginning 0))
+                  (after (char-after (match-end 0)))
+                  (in (agent-shell-markdown-in-avoid-range-p
+                       (match-beginning 0) (match-end 0) avoid-ranges)))
+              (cond
+               (in (goto-char (min (cdr in) eol)))
+               ((eq after ?$) (goto-char (min (1+ (match-end 0)) eol)))
+               ((memq (char-before p) '(?\s ?\t)) (throw 'done nil))
+               ((null after)
+                (throw 'done (if streaming 'pending (match-end 0))))
+               ((<= ?0 after ?9) (throw 'done nil))
+               (t (throw 'done (match-end 0))))))
+          (and streaming (= eol (point-max)) 'pending)))))))
+
+(defun agent-shell-math-renderer--inline-spans (&optional avoid-ranges streaming)
+  "Return inline-math spans `\\(...\\)' and `$...$' in the current buffer.
 
 Each element is a plist (:start S :end E :open O :close C), with
 the same shape as `agent-shell-math-renderer--blocks': S..E spans
 the whole delimited span (delimiters included) and the LaTeX body
-is the buffer text in [S+O, E-C).
+is the buffer text in [S+O, E-C).  Only the openers enabled by
+`agent-shell-math-renderer-render-inline' and
+`agent-shell-math-renderer-render-inline-dollar' are matched.
 
 Inline math is matched anywhere on a line, but only when the
-closing `\\)' appears on the SAME line as the opening `\\(' — a
-single-line bound that keeps a stray opener from swallowing the
-buffer and means the renderer's start-of-last-line watermark
-already covers the still-streaming case (no open-span bookkeeping
-needed, unlike `agent-shell-math-renderer--blocks').
+closer appears on the SAME line as the opener — a single-line
+bound that keeps a stray opener from swallowing the buffer.  A
+`$' closes as `agent-shell-math-renderer--dollar-close' says.
+
+When STREAMING, an opener on the buffer's last line whose closer
+may still stream in is returned with :close 0 and E at the end of
+the buffer, as `agent-shell-math-renderer--blocks' returns an open
+block, and the scan stops there: the text after it is held for the
+next chunk (see `agent-shell-math-renderer--inline-tail').
 
 A delimiter inside any of AVOID-RANGES (a sorted vector, typically
 fenced code, display math, or inline code) is ignored, and a
@@ -781,58 +885,52 @@ body rather than its end (see
 For example, with buffer \"see \\=\\(E=mc^2\\=\\) here\", returns
 \((:start 5 :end 15 :open 2 :close 2))."
   (let ((spans '())
-        (open agent-shell-math-renderer--inline-open)
-        (close agent-shell-math-renderer--inline-close)
+        (open-re (agent-shell-math-renderer--inline-open-regexp))
         (case-fold-search nil))
     (save-excursion
       (goto-char (point-min))
-      (let ((open-re (regexp-quote open))
-            (close-re (regexp-quote close)))
-        (while (agent-shell-math-renderer--re-search-unescaped-forward
-                open-re)
-          (let* ((open-start (match-beginning 0))
-                 (open-end (match-end 0))
-                 (avoid (agent-shell-markdown-in-avoid-range-p
-                         open-start open-end avoid-ranges)))
-            (if avoid
-                (goto-char (cdr avoid))
-              ;; Look for the closer on this line only; skip a closer
-              ;; that sits inside an avoid-range (it is protected text)
-              ;; or is escaped.  Markdown escaping is applied uniformly,
-              ;; so an escaped `\\)' stays body: it reaches LaTeX as
-              ;; `\\\\)', a line break followed by a paren.
-              (let ((eol (line-end-position))
-                    (close-end nil))
-                (save-excursion
-                  (goto-char open-end)
-                  (while (and (not close-end)
-                              (agent-shell-math-renderer--re-search-unescaped-forward
-                               close-re eol))
-                    (let ((in (agent-shell-markdown-in-avoid-range-p
-                               (match-beginning 0) (match-end 0) avoid-ranges)))
-                      (if in
-                          (goto-char (cdr in))
-                        (setq close-end (match-end 0))))))
-                (cond
-                 ;; Clean closer on the line and nothing protected sits
-                 ;; between the delimiters: a valid inline span.
-                 ((and close-end
-                       (not (seq-some
-                             (lambda (range)
-                               (and (< (car range) close-end)
-                                    (> (cdr range) open-start)))
-                             avoid-ranges)))
-                  (push (list :start open-start :end close-end
-                              :open (length open) :close (length close))
-                        spans)
-                  (goto-char close-end))
-                 ;; No usable closer on the line (false positive, or the
-                 ;; span is still streaming on the buffer's last line):
-                 ;; resume just after the opener so a later real span is
-                 ;; still found.  The start-of-last-line watermark re-scans
-                 ;; an unclosed tail on the next chunk.
-                 (t (goto-char open-end)))))))))
-    (nreverse spans)))
+      (while (and open-re
+                  (agent-shell-math-renderer--re-search-unescaped-forward
+                   open-re))
+        (let* ((open-start (match-beginning 0))
+               (open-end (match-end 0))
+               (dollar (eq (char-before open-end) ?$))
+               (avoid (agent-shell-markdown-in-avoid-range-p
+                       open-start open-end avoid-ranges)))
+          (cond
+           (avoid (goto-char (cdr avoid)))
+           ((and dollar (eq (char-after open-end) ?$))
+            (goto-char (1+ open-end)))
+           (t
+            (let ((close-end
+                   (funcall (if dollar
+                                #'agent-shell-math-renderer--dollar-close
+                              #'agent-shell-math-renderer--bracket-close)
+                            open-end (line-end-position) avoid-ranges
+                            streaming)))
+              (cond
+               ((eq close-end 'pending)
+                (push (list :start open-start :end (point-max)
+                            :open (- open-end open-start) :close 0)
+                      spans)
+                (goto-char (point-max)))
+               ;; A closer on the line and nothing protected sits between
+               ;; the delimiters: a valid inline span.
+               ((and close-end
+                     (not (seq-some
+                           (lambda (range)
+                             (and (< (car range) close-end)
+                                  (> (cdr range) open-start)))
+                           avoid-ranges)))
+                (push (list :start open-start :end close-end
+                            :open (- open-end open-start)
+                            :close (- open-end open-start))
+                      spans)
+                (goto-char close-end))
+               ;; No usable closer on the line: resume just after the
+               ;; opener so a later real span is still found.
+               (t (goto-char open-end))))))))
+      (nreverse spans))))
 
 (defun agent-shell-math-renderer--inline-ranges (&optional avoid-ranges)
   "Return list of (start . end) ranges covering inline-math spans.
@@ -843,15 +941,16 @@ forwarded."
             (cons (plist-get span :start) (plist-get span :end)))
           (agent-shell-math-renderer--inline-spans avoid-ranges)))
 
-(cl-defun agent-shell-math-renderer--style-inline (&key avoid-ranges)
-  "Overlay inline-math spans `\\(...\\)' with a text-style equation image.
+(cl-defun agent-shell-math-renderer--style-inline (&key avoid-ranges streaming)
+  "Overlay inline-math spans `\\(...\\)' and `$...$' with a text-style image.
 
 Mirrors `agent-shell-math-renderer--style-blocks' but for inline
 `\\(...\\)' spans (see `agent-shell-math-renderer--inline-spans'):
 the raw delimited text is kept and the region handed to
 `agent-shell-math-renderer--apply-region' with INLINE non-nil, so
 it is typeset in text style.  Spans inside AVOID-RANGES, or with an
-empty body, are left untouched.
+empty body, are left untouched, and so is a span still open while
+STREAMING.
 
 A span that lands on already-`agent-shell-markdown-frozen' text is
 also skipped.  AVOID-RANGES alone can't catch this: an earlier
@@ -859,8 +958,10 @@ pass (notably inline code) may have rewritten its region in the
 same call, collapsing the range markers we were handed — the live
 `frozen' property is the reliable signal, so a backticked
 `\\(x\\)' stays literal code."
-  (dolist (span (agent-shell-math-renderer--inline-spans avoid-ranges))
-    (when-let* ((start (plist-get span :start))
+  (dolist (span (agent-shell-math-renderer--inline-spans
+                 avoid-ranges streaming))
+    (when-let* (((> (plist-get span :close) 0))
+                (start (plist-get span :start))
                 ((not (get-text-property start 'agent-shell-markdown-frozen)))
                 (end (plist-get span :end))
                 (latex (string-trim
@@ -1875,36 +1976,22 @@ agent-shell-markdown\'s `:block' positions."
            source-blocks)))
 
 (defun agent-shell-math-renderer--inline-tail (avoid-ranges)
-  "Return a marker at a still-open inline `\\(' on the last line, or nil.
+  "Return a marker at a still-open inline opener on the last line, or nil.
 
-An unclosed inline `\\(' whose `\\)' hasn't streamed in yet sits on the
-buffer's last line.  Returned as the `:watermark', the marker makes
-`agent-shell' leave the text from the `\\(' on as it is for the rest of
-the chunk (agent-shell 0.89.4), so its escape pass cannot turn `\\('
-into `(', and re-scan it next chunk.  An opener already frozen
-\(rendered math), inside AVOID-RANGES, escaped (`\\\\('), or followed by
-its `\\)' on the line is not a streaming tail."
-  (let ((open-re (regexp-quote agent-shell-math-renderer--inline-open))
-        (close-re (regexp-quote agent-shell-math-renderer--inline-close))
-        (case-fold-search nil))
-    (save-excursion
-      (goto-char (point-max))
-      (beginning-of-line)
-      (catch 'found
-        (while (agent-shell-math-renderer--re-search-unescaped-forward
-                open-re)
-          (let ((os (match-beginning 0))
-                (oe (match-end 0)))
-            (when (and (not (agent-shell-markdown-in-avoid-range-p
-                             os oe avoid-ranges))
-                       (not (get-text-property
-                             os 'agent-shell-markdown-frozen))
-                       (not (save-excursion
-                              (goto-char oe)
-                              (agent-shell-math-renderer--re-search-unescaped-forward
-                               close-re))))
-              (throw 'found (copy-marker os)))))
-        nil))))
+An unclosed inline `\\(' or `$' whose closer may still stream in sits
+on the buffer's last line (see `agent-shell-math-renderer--inline-spans').
+Returned as the `:watermark', the marker makes `agent-shell' leave the
+text from the opener on as it is for the rest of the chunk
+\(agent-shell 0.89.4), so its escape pass cannot turn `\\(' into `(',
+nor its emphasis pass read the `_' of `$a_1 b_2' as italics, and
+re-scan it next chunk.  An opener inside AVOID-RANGES, or already
+frozen (rendered math), is not a streaming tail."
+  (when-let* ((span (seq-find (lambda (span) (zerop (plist-get span :close)))
+                              (agent-shell-math-renderer--inline-spans
+                               avoid-ranges t)))
+              (start (plist-get span :start))
+              ((not (get-text-property start 'agent-shell-markdown-frozen))))
+    (copy-marker start)))
 
 (defun agent-shell-math-renderer--render-context (context &optional streaming)
   "Render math in CONTEXT.
@@ -1933,16 +2020,18 @@ at the earliest still-open display block or inline span."
           ;; stays unrendered).  A marker tracks those edits, so the `min'
           ;; in `--update-watermark' reads its live position.
           (push (copy-marker (plist-get open-block :start)) watermarks))))
-    ;; Inline `\(...\)': avoid code fences, display-math blocks, and
-    ;; inline `code' spans.  The inline-code ranges come from CONTEXT,
-    ;; so a literal `\(x\)' meant as code is not rendered as math.
-    (when agent-shell-math-renderer-render-inline
+    ;; Inline `\(...\)' and `$...$': avoid code fences, display-math
+    ;; blocks, and inline `code' spans.  The inline-code ranges come from
+    ;; CONTEXT, so a literal `\(x\)' meant as code is not rendered as math.
+    (when (or agent-shell-math-renderer-render-inline
+              agent-shell-math-renderer-render-inline-dollar)
       (let ((math-ranges (agent-shell-markdown-sort-ranges
                           source-ranges
                           (agent-shell-math-renderer--block-ranges source-ranges)
                           inline-code-ranges)))
-        (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges)
-        ;; Hold the frontier at a still-open inline `\(' on the last line
+        (agent-shell-math-renderer--style-inline :avoid-ranges math-ranges
+                                                 :streaming streaming)
+        ;; Hold the frontier at a still-open inline opener on the last line
         ;; (see `--inline-tail').
         (when streaming
           (when-let* ((wm (agent-shell-math-renderer--inline-tail

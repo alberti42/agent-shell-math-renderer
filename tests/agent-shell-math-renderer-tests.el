@@ -677,6 +677,102 @@ after text.
         ;; ... and the raw LaTeX delimiters are kept (not unescaped away).
         (should (string-match-p "\\\\(E=mc\\^2\\\\)" rendered))))))
 
+;;; Inline `$...$'
+
+(defun agent-shell-math-renderer-tests--sources (string)
+  "Return the `agent-shell-math-renderer-source' values in STRING, in order."
+  (let ((pos 0) (sources '()))
+    (while (setq pos (text-property-not-all
+                      pos (length string)
+                      'agent-shell-math-renderer-source nil string))
+      (push (get-text-property pos 'agent-shell-math-renderer-source string)
+            sources)
+      (setq pos (next-single-property-change
+                 pos 'agent-shell-math-renderer-source string (length string))))
+    (nreverse sources)))
+
+(ert-deftest agent-shell-math-renderer-inline-dollar-renders ()
+  ;; `$...$' is inline math, anywhere on a line, and its `_' is not read as
+  ;; emphasis.
+  (agent-shell-math-renderer-tests--enabled
+    (let ((rendered (agent-shell-markdown-convert
+                     "then $a_1 b_2$ and $x$.")))
+      (should (equal (agent-shell-math-renderer-tests--sources rendered)
+                     '("a_1 b_2" "x")))
+      (should (get-text-property (string-match "\\$a_1" rendered)
+                                 'agent-shell-math-renderer-inline rendered))
+      (should (string-match-p "\\$a_1 b_2\\$" rendered)))))
+
+(ert-deftest agent-shell-math-renderer-inline-dollar-guards ()
+  ;; Pandoc's guards, as in the `latex-to-svg' front-end: a space after the
+  ;; opening `$' or before the closing one, or a digit after the closing one,
+  ;; means no span; an escaped `\$' is no delimiter; a `$$' is skipped; and
+  ;; the span ends on its line.
+  (agent-shell-math-renderer-tests--enabled
+    (dolist (text '("costs $30 and $50 today"
+                    "between $100-$200"
+                    "a $ x$ b"
+                    "a $x $ b"
+                    "a $x$2 b"
+                    "a \\$x\\$ b"
+                    "a $$x$$ b"
+                    "a $x\ny$ b"))
+      (should-not (agent-shell-math-renderer-tests--sources
+                   (agent-shell-markdown-convert text))))))
+
+(ert-deftest agent-shell-math-renderer-inline-dollar-after-currency ()
+  ;; A currency `$' whose closing candidate fails a guard opens nothing, so
+  ;; it does not pair with the `$' of a later equation.
+  (agent-shell-math-renderer-tests--enabled
+    (should (equal (agent-shell-math-renderer-tests--sources
+                    (agent-shell-markdown-convert
+                     "it costs $5, and $x^2$ grows"))
+                   '("x^2")))))
+
+(ert-deftest agent-shell-math-renderer-inline-dollar-in-code-stays-code ()
+  ;; Inline code and fences are avoided, as for `\(...\)'.
+  (agent-shell-math-renderer-tests--enabled
+    (should-not (agent-shell-math-renderer-tests--sources
+                 (agent-shell-markdown-convert
+                  "run `echo $x$` here\n\n```sh\necho $a$\n```\n")))))
+
+(ert-deftest agent-shell-math-renderer-inline-dollar-can-be-disabled ()
+  ;; `-render-inline-dollar' nil leaves `$...$' as text and keeps `\(...\)'.
+  (agent-shell-math-renderer-tests--enabled
+    (let ((agent-shell-math-renderer-render-inline-dollar nil))
+      (should (equal (agent-shell-math-renderer-tests--sources
+                      (agent-shell-markdown-convert "a $x$ and \\(y\\)"))
+                     '("y"))))
+    (let ((agent-shell-math-renderer-render-inline nil))
+      (should (equal (agent-shell-math-renderer-tests--sources
+                      (agent-shell-markdown-convert "a $x$ and \\(y\\)"))
+                     '("x"))))))
+
+(ert-deftest agent-shell-math-renderer-inline-dollar-streaming ()
+  ;; Streamed at several chunk sizes, an equation renders whole, with its
+  ;; `_' and `*' intact; a digit after the closing `$' in the next chunk still
+  ;; rules the span out, and currency stays text.
+  (agent-shell-math-renderer-tests--enabled
+    (dolist (step '(1 2 3 5 40))
+      (let ((rendered (agent-shell-math-renderer-tests--stream
+                       "the value $a_1 b_2$ done\n" step)))
+        (should (equal (agent-shell-math-renderer-tests--sources rendered)
+                       '("a_1 b_2")))
+        (should (string-match-p "\\$a_1 b_2\\$" rendered)))
+      ;; The watermark at the open `$' keeps the emphasis pass off `*a*'
+      ;; until the closing `$' arrives.
+      (should (equal (agent-shell-math-renderer-tests--sources
+                      (agent-shell-math-renderer-tests--stream
+                       "so $*a* + b$ here\n" step))
+                     '("*a* + b")))
+      (should-not (agent-shell-math-renderer-tests--sources
+                   (agent-shell-math-renderer-tests--stream
+                    "a $x$2 b\n" step)))
+      (let ((rendered (agent-shell-math-renderer-tests--stream
+                       "costs $30 and **$50** more\n" step)))
+        (should-not (agent-shell-math-renderer-tests--sources rendered))
+        (should (string-match-p "costs \\$30 and \\$50 more" rendered))))))
+
 (ert-deftest agent-shell-math-renderer-inline-math-can-be-disabled ()
   ;; `agent-shell-math-renderer-render-inline' nil disables `\\(...\\)'
   ;; even with the master switch on: delimiters are plain and inner
