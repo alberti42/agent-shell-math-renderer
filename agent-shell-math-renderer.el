@@ -1618,7 +1618,11 @@ async compile reads all three again, on the frame that shows BUFFER
 then.  When the request ends without a picture, the callback leaves
 the source as it is and marks it (see
 `agent-shell-math-renderer--show-failure'); each render first removes
-the mark of the previous one."
+the mark of the previous one.
+
+An equation inside a laid-out table is not drawn here: the table is laid
+out again with the images of its equations (see
+`agent-shell-math-renderer--relayout-table')."
   (let ((frame (agent-shell-math-renderer--display-frame buffer)))
     (cond
      ((not (agent-shell-math-renderer--graphical-p))
@@ -1627,6 +1631,8 @@ the mark of the previous one."
       ;; before and nothing else changed.
       (with-current-buffer buffer
         (setq agent-shell-math-renderer--rendered-appearance nil)))
+     ((agent-shell-math-renderer--in-table-p buffer start)
+      (agent-shell-math-renderer--schedule-relayout buffer start))
      (t
       (agent-shell-math-renderer--clear-failure start end latex)
       (with-current-buffer buffer
@@ -1677,8 +1683,13 @@ the mark of the previous one."
                                     buffer token))
                            (s (car region))
                            (e (cdr region)))
-                 (if outcome
-                     (agent-shell-math-renderer--show-failure buffer s e outcome)
+                 (cond
+                  (outcome
+                   (agent-shell-math-renderer--show-failure buffer s e outcome))
+                  ;; A table pass took the equation in while it compiled.
+                  ((agent-shell-math-renderer--in-table-p buffer s)
+                   (agent-shell-math-renderer--schedule-relayout buffer s))
+                  (t
                    (with-current-buffer buffer
                      ;; Read again: the buffer may be displayed now even if it
                      ;; was not when the compile was scheduled, or on another
@@ -1699,7 +1710,158 @@ the mark of the previous one."
                                     s buffer))
                         inline
                         (agent-shell-math-renderer--help-echo
-                         doc latex engine fallback)))))))))))))))
+                         doc latex engine fallback))))))))))))))))
+
+;;; Equations in tables
+
+(declare-function agent-shell-markdown-rerender-table "agent-shell-markdown"
+                  (pos &optional source))
+
+(defvar-local agent-shell-math-renderer--relayout-markers nil
+  "Markers in the tables of the buffer to lay out again.")
+
+(defvar-local agent-shell-math-renderer--relayout-timer nil
+  "Timer of a pending `agent-shell-math-renderer--relayout-tables'.")
+
+(defun agent-shell-math-renderer--in-table-p (buffer pos)
+  "Non-nil when POS in BUFFER is in a table agent-shell laid out.
+Nil when this agent-shell cannot lay out a table again from a given
+source (`agent-shell-markdown-rerender-table'): equations in tables are
+then drawn where they are, as elsewhere."
+  (and (fboundp 'agent-shell-markdown-rerender-table)
+       (get-text-property pos 'agent-shell-markdown-table-source buffer)))
+
+(defun agent-shell-math-renderer--schedule-relayout (buffer pos)
+  "Lay out the table at POS in BUFFER again, from a timer.
+Several equations of a table, or of several tables, scheduled before
+the timer runs are laid out by the same run, each table once."
+  (with-current-buffer buffer
+    (push (copy-marker pos) agent-shell-math-renderer--relayout-markers)
+    (unless agent-shell-math-renderer--relayout-timer
+      (setq agent-shell-math-renderer--relayout-timer
+            (run-at-time 0 nil #'agent-shell-math-renderer--relayout-tables
+                         buffer)))))
+
+(defun agent-shell-math-renderer--relayout-tables (buffer)
+  "Lay out again each table of BUFFER scheduled for it.
+See `agent-shell-math-renderer--schedule-relayout'.  A marker in a
+table stays in it when the table is laid out again, at its start."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let ((markers agent-shell-math-renderer--relayout-markers)
+            (done '()))
+        (setq agent-shell-math-renderer--relayout-markers nil
+              agent-shell-math-renderer--relayout-timer nil)
+        (save-restriction
+          (widen)
+          (dolist (marker markers)
+            (when-let* ((pos (marker-position marker))
+                        ((< pos (point-max)))
+                        (source (get-text-property
+                                 pos 'agent-shell-markdown-table-source))
+                        ((not (memq source done))))
+              (push (agent-shell-math-renderer--relayout-table
+                     buffer pos source)
+                    done))
+            (set-marker marker nil)))))))
+
+(defun agent-shell-math-renderer--table-image (buffer pos latex inline table)
+  "Return the image of the equation LATEX at POS in BUFFER, or nil.
+INLINE chooses text style.  The image is the one `--render' would draw:
+the same engine, options, color and x-height, read at POS.  When the
+SVG is not in the cache, start its compile, and lay out the table at
+TABLE, a marker, again when it is.  TABLE stays at the table's start
+when the table is laid out again in the meantime."
+  (let* ((frame (agent-shell-math-renderer--display-frame buffer))
+         (doc (agent-shell-math-renderer--wrap latex inline))
+         (args (list :engine agent-shell-math-renderer-engine
+                     :fallback (agent-shell-math-renderer--fallback-for
+                                agent-shell-math-renderer-engine)
+                     :quiet agent-shell-math-renderer-quiet
+                     :rescale-by (if inline
+                                     agent-shell-math-renderer-rescale-inline
+                                   agent-shell-math-renderer-rescale-display)
+                     :color (agent-shell-math-renderer--foreground-for
+                             pos frame)
+                     :background (agent-shell-math-renderer--background-for
+                                  frame)
+                     :padding (agent-shell-math-renderer--padding-for inline)
+                     :x-height (agent-shell-math-renderer--x-height-at
+                                pos buffer))))
+    (or (apply #'latex-to-svg-backend doc args)
+        (progn
+          (apply #'latex-to-svg-backend doc
+                 :callback
+                 (lambda (outcome)
+                   (when (and (null outcome) (buffer-live-p buffer)
+                              (marker-position table))
+                     (agent-shell-math-renderer--schedule-relayout
+                      buffer table)))
+                 args)
+          nil))))
+
+(defun agent-shell-math-renderer--relayout-table (buffer pos source)
+  "Lay out the table at POS in BUFFER again with its equations' images.
+SOURCE is the table's stored markdown.  On a copy of it, each equation
+gets the image `agent-shell-math-renderer--table-image' returns, read
+at the equation's first character in the table, and loses its
+`agent-shell-math-renderer--deferred' tag; then
+`agent-shell-markdown-rerender-table' lays the table out from the copy.
+The columns are measured with the images, and an image is never split
+across lines, as it is when each wrapped piece of an equation's text is
+drawn.  An equation whose SVG is not cached yet stays text until its
+compile ends and the table is laid out again.  Return the source the
+table is laid out from."
+  (if (not (agent-shell-math-renderer--graphical-p))
+      source
+    (let* ((copy (copy-sequence source))
+           (table-start (if (and (> pos (point-min))
+                                 (eq (get-text-property
+                                      (1- pos) 'agent-shell-markdown-table-source)
+                                     source))
+                            (previous-single-property-change
+                             pos 'agent-shell-markdown-table-source
+                             nil (point-min))
+                          pos))
+           (table-end (next-single-property-change
+                       pos 'agent-shell-markdown-table-source nil (point-max)))
+           (table (copy-marker table-start))
+           (start 0))
+      (while (setq start (text-property-not-all
+                          start (length copy)
+                          'agent-shell-math-renderer-source nil copy))
+        (let* ((end (next-single-property-change
+                     start 'agent-shell-math-renderer-source copy (length copy)))
+               (latex (get-text-property
+                       start 'agent-shell-math-renderer-source copy))
+               (inline (get-text-property
+                        start 'agent-shell-math-renderer-inline copy))
+               (at (or (text-property-any table-start table-end
+                                          'agent-shell-math-renderer-source
+                                          latex)
+                       table-start))
+               (image (agent-shell-math-renderer--table-image
+                       buffer at latex inline table)))
+          (remove-text-properties
+           start end '(agent-shell-math-renderer--deferred nil
+                       agent-shell-math-renderer--pending nil
+                       display nil mouse-face nil)
+           copy)
+          (when image
+            (add-text-properties
+             start end
+             (list 'display image
+                   'mouse-face 'highlight
+                   'help-echo (agent-shell-math-renderer--help-echo
+                               (agent-shell-math-renderer--wrap latex inline)
+                               latex agent-shell-math-renderer-engine
+                               (agent-shell-math-renderer--fallback-for
+                                agent-shell-math-renderer-engine)))
+             copy))
+          (setq start end)))
+      (setq agent-shell-math-renderer--rendered-appearance
+            (agent-shell-math-renderer--appearance buffer))
+      (agent-shell-markdown-rerender-table pos copy))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer &optional recompile)
   "Re-render every display-math region in BUFFER for the current colors.

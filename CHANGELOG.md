@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- An equation in a table is drawn once and the table's columns fit it,
+  with an agent-shell that has `agent-shell-markdown-rerender-table`.
+  agent-shell lays out a table before the equations' images exist, so
+  the columns were sized for the LaTeX source, and an equation wrapped
+  onto two lines showed its image on each. The package now lays the
+  table out again with the images once they are ready.
+
 ## [0.18.0] - 2026-11-07
 
 ### Added

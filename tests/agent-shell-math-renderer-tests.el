@@ -1845,7 +1845,10 @@ strings, and the buffer font has an x-height of 18."
   ;; A table's pass leaves a row on the last line raw until its newline
   ;; arrives.  An equation in that row is rendered first, and the pass
   ;; deletes the table and inserts it laid out again in the next chunk,
-  ;; while the uncached compile runs.  The image still lands.
+  ;; while the uncached compile runs.  The image still lands: when the
+  ;; compile ends, the table is laid out again with it (with an
+  ;; agent-shell that has `agent-shell-markdown-rerender-table'), else
+  ;; on the equation's text.
   (agent-shell-math-renderer-tests--enabled
     (agent-shell-math-renderer-tests--with-frame
       (let ((callbacks nil)
@@ -1869,10 +1872,104 @@ strings, and the buffer font has an x-height of 18."
             (should (search-forward "│" nil t))
             (setq ready t)
             (dolist (callback callbacks) (funcall callback nil))
+            (agent-shell-math-renderer--relayout-tables (current-buffer))
             (goto-char (point-min))
             (search-forward "\\(b")
             (should (eq 'image (car-safe (get-text-property
                                           (match-beginning 0) 'display))))))))))
+
+(defun agent-shell-math-renderer-tests--display-runs (latex)
+  "Return the extents of the `display' runs over LATEX's text in the buffer.
+LATEX is an equation's delimited text; each run is (START . END)."
+  (let ((runs '()))
+    (save-excursion
+      (goto-char (point-min))
+      (while (search-forward latex nil t)
+        (let ((pos (match-beginning 0)))
+          (while (< pos (match-end 0))
+            (let ((end (next-single-property-change
+                        pos 'display nil (match-end 0))))
+              (when (get-text-property pos 'display)
+                (push (cons pos end) runs))
+              (setq pos end))))))
+    (nreverse runs)))
+
+(ert-deftest agent-shell-math-renderer-table-laid-out-with-images ()
+  ;; An equation in a table is not drawn on the table's text: the table
+  ;; is laid out again from its source with the image on the whole
+  ;; equation, and the source keeps the image for a later re-layout.
+  (skip-unless (fboundp 'agent-shell-markdown-rerender-table))
+  (agent-shell-math-renderer-tests--enabled
+    (agent-shell-math-renderer-tests--with-frame
+      (cl-letf (((symbol-function 'latex-to-svg-backend)
+                 (lambda (&rest _) '(image :type svg :data "<svg/>"))))
+        (with-temp-buffer
+          (insert "| A | B |\n|---|---|\n| \\( x + y \\) | $z$ |\n")
+          (agent-shell-markdown-replace-markup)
+          (agent-shell-math-renderer--render-deferred (current-buffer))
+          (should-not (agent-shell-math-renderer-tests--display-runs
+                       "\\( x + y \\)"))
+          (agent-shell-math-renderer--relayout-tables (current-buffer))
+          (let ((run (car (agent-shell-math-renderer-tests--display-runs
+                           "\\( x + y \\)"))))
+            (should run)
+            (should (= (- (cdr run) (car run)) (length "\\( x + y \\)"))))
+          (should (agent-shell-math-renderer-tests--display-runs "$z$"))
+          (let ((source (get-text-property
+                         (point-min) 'agent-shell-markdown-table-source)))
+            (should (text-property-not-all 0 (length source)
+                                           'display nil source))
+            (should-not (text-property-not-all
+                         0 (length source)
+                         'agent-shell-math-renderer--deferred nil source))))))))
+
+(ert-deftest agent-shell-math-renderer-table-image-after-compile ()
+  ;; An uncached equation stays text in the laid-out table; when its
+  ;; compile ends, the table is laid out again with its image.
+  (skip-unless (fboundp 'agent-shell-markdown-rerender-table))
+  (agent-shell-math-renderer-tests--enabled
+    (agent-shell-math-renderer-tests--with-frame
+      (let ((callbacks nil)
+            (ready nil))
+        (cl-letf (((symbol-function 'latex-to-svg-backend)
+                   (lambda (_latex &rest args)
+                     (cond ((plist-get args :callback)
+                            (push (plist-get args :callback) callbacks)
+                            nil)
+                           (ready '(image :type svg :data "<svg/>"))))))
+          (with-temp-buffer
+            (insert "| A | B |\n|---|---|\n| \\(x\\) | y |\n")
+            (agent-shell-markdown-replace-markup)
+            (agent-shell-math-renderer--render-deferred (current-buffer))
+            (agent-shell-math-renderer--relayout-tables (current-buffer))
+            (should-not (agent-shell-math-renderer-tests--display-runs
+                         "\\(x\\)"))
+            (should callbacks)
+            (setq ready t)
+            (dolist (callback callbacks) (funcall callback nil))
+            (agent-shell-math-renderer--relayout-tables (current-buffer))
+            (should (agent-shell-math-renderer-tests--display-runs
+                     "\\(x\\)"))))))))
+
+(ert-deftest agent-shell-math-renderer-table-refresh-lays-out-again ()
+  ;; A refresh (a theme or font change) lays a table out again instead
+  ;; of drawing on its text.
+  (skip-unless (fboundp 'agent-shell-markdown-rerender-table))
+  (agent-shell-math-renderer-tests--enabled
+    (agent-shell-math-renderer-tests--with-frame
+      (let ((overlaid nil))
+        (cl-letf (((symbol-function 'latex-to-svg-backend)
+                   (lambda (&rest _) '(image :type svg :data "<svg/>")))
+                  ((symbol-function 'agent-shell-math-renderer--overlay-image)
+                   (lambda (&rest _) (setq overlaid t))))
+          (with-temp-buffer
+            (insert "| A | B |\n|---|---|\n| \\(x\\) | y |\n")
+            (agent-shell-markdown-replace-markup)
+            (agent-shell-math-renderer--render-deferred (current-buffer))
+            (agent-shell-math-renderer--relayout-tables (current-buffer))
+            (agent-shell-math-renderer-refresh (current-buffer))
+            (should agent-shell-math-renderer--relayout-markers)
+            (should-not overlaid)))))))
 
 (ert-deftest agent-shell-math-renderer-equation-sized-like-its-text ()
   ;; An equation, inline or display, is sized by the x-height of the font
