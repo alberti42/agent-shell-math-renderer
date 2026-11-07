@@ -37,9 +37,9 @@ by the author, and design decisions are the author's.
 - **Fast** — compilation is asynchronous (hidden behind the agent's streaming)
   and every equation is cached on disk, so repeats are instant.
 - **No special agent prompt** — works out of the box; the one thing worth
-  telling your agent is to use `\(…\)` for inline math rather than markdown
-  inline code, since there is no unambiguous way to tell inline code *meant as
-  math* from a literal code span (see the tip under [Usage](#usage)).
+  telling your agent is to use `\(…\)` or `$…$` for inline math rather than
+  markdown inline code, since there is no unambiguous way to tell inline code
+  *meant as math* from a literal code span (see the tip under [Usage](#usage)).
 
 ## What it renders
 
