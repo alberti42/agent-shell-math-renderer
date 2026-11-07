@@ -1251,6 +1251,8 @@ which binds CALLS), and its callback called with
            (opened nil)
            (messages nil)
            (fail (lambda (log)
+                   (agent-shell-math-renderer--render
+                    (current-buffer) (point-min) (point-max) "\\notacommand" t)
                    (funcall (plist-get (cdar calls) :callback)
                             (plist-put (copy-sequence
                                         agent-shell-math-renderer-tests--failure)
@@ -1705,6 +1707,43 @@ strings, and the buffer font has an x-height of 18."
             (search-forward "\\(")
             (should (eq 'image (car-safe (get-text-property
                                           (match-beginning 0) 'display))))))))))
+
+(ert-deftest agent-shell-math-renderer-image-lands-in-a-heading-next-chunk ()
+  ;; A heading's pass waits for its newline.  When a chunk ends right after
+  ;; an equation that ends a heading, the equation is rendered first, and
+  ;; the pass deletes and reinserts the line in the next chunk, while the
+  ;; uncached compile runs.  The image still lands.
+  (agent-shell-math-renderer-tests--enabled
+    (agent-shell-math-renderer-tests--with-frame
+      (let ((callbacks nil)
+            (ready nil))
+        (cl-letf (((symbol-function 'latex-to-svg-backend)
+                   (lambda (_latex &rest args)
+                     (cond ((plist-get args :callback)
+                            (push (plist-get args :callback) callbacks)
+                            nil)
+                           (ready '(image :type svg :data "<svg/>"))))))
+          (with-temp-buffer
+            (insert "## Head \\(x\\)")
+            (agent-shell-markdown-replace-markup)
+            (agent-shell-math-renderer--render-deferred (current-buffer))
+            (goto-char (point-max))
+            (insert "\n\nmore text\n")
+            (agent-shell-markdown-replace-markup)
+            (agent-shell-math-renderer--render-deferred (current-buffer))
+            (goto-char (point-min))
+            (should (equal (buffer-substring-no-properties
+                            (point) (line-end-position))
+                           "Head \\(x\\)"))
+            (setq ready t)
+            (dolist (callback callbacks) (funcall callback nil))
+            (goto-char (point-min))
+            (search-forward "\\(")
+            (should (eq 'image (car-safe (get-text-property
+                                          (match-beginning 0) 'display))))
+            (should-not (text-property-not-all
+                         (point-min) (point-max)
+                         'agent-shell-math-renderer--pending nil))))))))
 
 (ert-deftest agent-shell-math-renderer-equation-sized-like-its-text ()
   ;; An equation, inline or display, is sized by the x-height of the font

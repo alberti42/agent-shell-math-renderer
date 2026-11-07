@@ -1133,6 +1133,29 @@ equations stay two."
                  buffer pos end latex inline))
               (setq pos end))))))))
 
+(defun agent-shell-math-renderer--take-pending (buffer token)
+  "Return BUFFER's region tagged TOKEN as (START . END), and untag it.
+TOKEN is the `agent-shell-math-renderer--pending' value
+`agent-shell-math-renderer--render' put on an equation whose compile it
+started.  A text property rides along when agent-shell's heading, link
+or table pass deletes and reinserts the text in a later chunk, where
+markers would collapse.  Return nil when BUFFER is dead or no text
+carries TOKEN: the equation was edited away or rendered again since."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (save-restriction
+        (widen)
+        (when-let* ((start (text-property-any
+                            (point-min) (point-max)
+                            'agent-shell-math-renderer--pending token))
+                    (end (next-single-property-change
+                          start 'agent-shell-math-renderer--pending
+                          nil (point-max))))
+          (with-silent-modifications
+            (remove-text-properties
+             start end '(agent-shell-math-renderer--pending nil)))
+          (cons start end))))))
+
 (defun agent-shell-math-renderer--overlay-image (buffer start end image
                                                         &optional inline
                                                         help-echo)
@@ -1449,11 +1472,14 @@ obsolete `agent-shell-math-renderer-padding'."
 
 Delegates typesetting to `latex-to-svg-backend': overlays the image
 immediately when available (cached SVG), else
-captures START / END as markers and overlays the result once the
-async compile finishes (so the overlay lands even after more output
-streams in).  When this Emacs cannot display SVG images (see
-`latex-to-svg-backend-available-p'), the backend warns once per
-session and returns no image, and the raw faced text stays.  When no
+tags START..END with a token and overlays the result on the text that
+carries it once the async compile finishes (so the overlay lands even
+after more output streams in, or a later chunk's heading or link pass
+deletes and reinserts the text; see
+`agent-shell-math-renderer--take-pending').  When this Emacs cannot
+display SVG images (see `latex-to-svg-backend-available-p'), the
+backend warns once per session and returns no image, and the raw faced
+text stays.  When no
 frame is graphical (`agent-shell-math-renderer--graphical-p'), it does
 nothing and clears the appearance signature, so the display hook
 renders the equation once a graphical window shows BUFFER.
@@ -1502,6 +1528,10 @@ the mark of the previous one."
         (setq agent-shell-math-renderer--rendered-appearance nil)))
      (t
       (agent-shell-math-renderer--clear-failure start end latex)
+      (with-current-buffer buffer
+        (with-silent-modifications
+          (remove-text-properties
+           start end '(agent-shell-math-renderer--pending nil))))
       (let* ((x-height (agent-shell-math-renderer--x-height-at start buffer))
              (doc (agent-shell-math-renderer--wrap latex inline))
              (engine agent-shell-math-renderer-engine)
@@ -1527,10 +1557,14 @@ the mark of the previous one."
             (agent-shell-math-renderer--overlay-image
              buffer start end image inline
              (agent-shell-math-renderer--help-echo doc latex engine fallback))
-          ;; Not ready yet: schedule and overlay when the SVG lands.  Capture
-          ;; the region as markers so it survives further streaming output.
-          (let ((s (copy-marker start))
-                (e (copy-marker end)))
+          ;; Not ready yet: schedule and overlay when the SVG lands.  Tag the
+          ;; region with a token the callback finds it by (see
+          ;; `agent-shell-math-renderer--take-pending').
+          (let ((token (list 'pending)))
+            (with-current-buffer buffer
+              (with-silent-modifications
+                (put-text-property start end
+                                   'agent-shell-math-renderer--pending token)))
             (latex-to-svg-backend
              doc
              :engine engine :fallback fallback :quiet quiet
@@ -1538,9 +1572,12 @@ the mark of the previous one."
              :background background :padding padding :x-height x-height
              :callback
              (lambda (outcome)
-               (if outcome
-                   (agent-shell-math-renderer--show-failure buffer s e outcome)
-                 (when (buffer-live-p buffer)
+               (when-let* ((region (agent-shell-math-renderer--take-pending
+                                    buffer token))
+                           (s (car region))
+                           (e (cdr region)))
+                 (if outcome
+                     (agent-shell-math-renderer--show-failure buffer s e outcome)
                    (with-current-buffer buffer
                      ;; Read again: the buffer may be displayed now even if it
                      ;; was not when the compile was scheduled, or on another

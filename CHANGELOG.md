@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- An inline equation that ends a heading got no image when a streaming
+  chunk ended right after it and its compile was not cached: agent-shell
+  formats the heading when its newline arrives in the next chunk, and
+  deleted the text the image was to be placed on. The image now lands on
+  the text that replaces it.
+
 ### Changed
 
 - Requires `latex-to-svg-backend` 0.18.1. Before it, the texres engine
