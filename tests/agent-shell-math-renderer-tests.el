@@ -1745,6 +1745,39 @@ strings, and the buffer font has an x-height of 18."
                          (point-min) (point-max)
                          'agent-shell-math-renderer--pending nil))))))))
 
+(ert-deftest agent-shell-math-renderer-image-lands-in-a-table-next-chunk ()
+  ;; A table's pass leaves a row on the last line raw until its newline
+  ;; arrives.  An equation in that row is rendered first, and the pass
+  ;; deletes the table and inserts it laid out again in the next chunk,
+  ;; while the uncached compile runs.  The image still lands.
+  (agent-shell-math-renderer-tests--enabled
+    (agent-shell-math-renderer-tests--with-frame
+      (let ((callbacks nil)
+            (ready nil))
+        (cl-letf (((symbol-function 'latex-to-svg-backend)
+                   (lambda (latex &rest args)
+                     (cond ((plist-get args :callback)
+                            (push (plist-get args :callback) callbacks)
+                            nil)
+                           ((or ready (equal latex "$a$"))
+                            '(image :type svg :data "<svg/>"))))))
+          (with-temp-buffer
+            (insert "| A | B |\n|---|---|\n| x \\(a\\) | y |\n| z | w \\(b\\) |")
+            (agent-shell-markdown-replace-markup)
+            (agent-shell-math-renderer--render-deferred (current-buffer))
+            (goto-char (point-max))
+            (insert "\n\nmore text\n")
+            (agent-shell-markdown-replace-markup)
+            (agent-shell-math-renderer--render-deferred (current-buffer))
+            (goto-char (point-min))
+            (should (search-forward "│" nil t))
+            (setq ready t)
+            (dolist (callback callbacks) (funcall callback nil))
+            (goto-char (point-min))
+            (search-forward "\\(b")
+            (should (eq 'image (car-safe (get-text-property
+                                          (match-beginning 0) 'display))))))))))
+
 (ert-deftest agent-shell-math-renderer-equation-sized-like-its-text ()
   ;; An equation, inline or display, is sized by the x-height of the font
   ;; at its opening delimiter: its pixel size (slot 2 of `query-font')
