@@ -1715,7 +1715,9 @@ out again with the images of its equations (see
 ;;; Equations in tables
 
 (declare-function agent-shell-markdown-rerender-table "agent-shell-markdown"
-                  (pos &optional source))
+                  (&rest args))
+(declare-function agent-shell-markdown-table-at "agent-shell-markdown"
+                  (position))
 
 (defvar-local agent-shell-math-renderer--relayout-markers nil
   "Markers in the tables of the buffer to lay out again.")
@@ -1726,10 +1728,12 @@ out again with the images of its equations (see
 (defun agent-shell-math-renderer--in-table-p (buffer pos)
   "Non-nil when POS in BUFFER is in a table agent-shell laid out.
 Nil when this agent-shell cannot lay out a table again from a given
-source (`agent-shell-markdown-rerender-table'): equations in tables are
-then drawn where they are, as elsewhere."
-  (and (fboundp 'agent-shell-markdown-rerender-table)
-       (get-text-property pos 'agent-shell-markdown-table-source buffer)))
+source (`agent-shell-markdown-rerender-table' and
+`agent-shell-markdown-table-at', agent-shell 0.93.2): equations in
+tables are then drawn where they are, as elsewhere."
+  (and (fboundp 'agent-shell-markdown-table-at)
+       (with-current-buffer buffer
+         (agent-shell-markdown-table-at pos))))
 
 (defun agent-shell-math-renderer--schedule-relayout (buffer pos)
   "Lay out the table at POS in BUFFER again, from a timer.
@@ -1757,11 +1761,10 @@ table stays in it when the table is laid out again, at its start."
           (dolist (marker markers)
             (when-let* ((pos (marker-position marker))
                         ((< pos (point-max)))
-                        (source (get-text-property
-                                 pos 'agent-shell-markdown-table-source))
-                        ((not (memq source done))))
+                        (table (agent-shell-markdown-table-at pos))
+                        ((not (memq (map-elt table :source) done))))
               (push (agent-shell-math-renderer--relayout-table
-                     buffer pos source)
+                     buffer pos table)
                     done))
             (set-marker marker nil)))))))
 
@@ -1800,11 +1803,13 @@ when the table is laid out again in the meantime."
                  args)
           nil))))
 
-(defun agent-shell-math-renderer--relayout-table (buffer pos source)
+(defun agent-shell-math-renderer--relayout-table (buffer pos table)
   "Lay out the table at POS in BUFFER again with its equations' images.
-SOURCE is the table's stored markdown.  On a copy of it, each equation
-gets the image `agent-shell-math-renderer--table-image' returns, read
-at the equation's first character in the table, and loses its
+TABLE is what `agent-shell-markdown-table-at' returns for POS: the
+table's stored markdown and its bounds.  On a copy of the markdown,
+each equation gets the image `agent-shell-math-renderer--table-image'
+returns, read at the equation's first character in the table, and loses
+its
 `agent-shell-math-renderer--deferred' tag; then
 `agent-shell-markdown-rerender-table' lays the table out from the copy.
 The columns are measured with the images, and an image is never split
@@ -1813,19 +1818,11 @@ drawn.  An equation whose SVG is not cached yet stays text until its
 compile ends and the table is laid out again.  Return the source the
 table is laid out from."
   (if (not (agent-shell-math-renderer--graphical-p))
-      source
-    (let* ((copy (copy-sequence source))
-           (table-start (if (and (> pos (point-min))
-                                 (eq (get-text-property
-                                      (1- pos) 'agent-shell-markdown-table-source)
-                                     source))
-                            (previous-single-property-change
-                             pos 'agent-shell-markdown-table-source
-                             nil (point-min))
-                          pos))
-           (table-end (next-single-property-change
-                       pos 'agent-shell-markdown-table-source nil (point-max)))
-           (table (copy-marker table-start))
+      (map-elt table :source)
+    (let* ((copy (copy-sequence (map-elt table :source)))
+           (table-start (map-elt table :start))
+           (table-end (map-elt table :end))
+           (marker (copy-marker table-start))
            (start 0))
       (while (setq start (text-property-not-all
                           start (length copy)
@@ -1841,7 +1838,7 @@ table is laid out from."
                                           latex)
                        table-start))
                (image (agent-shell-math-renderer--table-image
-                       buffer at latex inline table)))
+                       buffer at latex inline marker)))
           (remove-text-properties
            start end '(agent-shell-math-renderer--deferred nil
                        agent-shell-math-renderer--pending nil
@@ -1861,7 +1858,7 @@ table is laid out from."
           (setq start end)))
       (setq agent-shell-math-renderer--rendered-appearance
             (agent-shell-math-renderer--appearance buffer))
-      (agent-shell-markdown-rerender-table pos copy))))
+      (agent-shell-markdown-rerender-table :position pos :source copy))))
 
 (defun agent-shell-math-renderer--refresh-buffer (buffer &optional recompile)
   "Re-render every display-math region in BUFFER for the current colors.
