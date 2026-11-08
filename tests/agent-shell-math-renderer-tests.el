@@ -55,9 +55,6 @@
 (require 'agent-shell-markdown)
 (require 'agent-shell-math-renderer)
 
-(declare-function agent-shell-markdown-table-at "agent-shell-markdown"
-                  (position))
-
 ;; The renderer now installs its render hook buffer-locally via
 ;; `agent-shell-math-renderer-mode'.  These tests drive the pipeline through
 ;; `agent-shell-markdown-convert' in throwaway buffers (no mode), so install
@@ -1849,9 +1846,7 @@ strings, and the buffer font has an x-height of 18."
   ;; arrives.  An equation in that row is rendered first, and the pass
   ;; deletes the table and inserts it laid out again in the next chunk,
   ;; while the uncached compile runs.  The image still lands: when the
-  ;; compile ends, the table is laid out again with it (with an
-  ;; agent-shell that has `agent-shell-markdown-table-at'), else
-  ;; on the equation's text.
+  ;; compile ends, the table is laid out again with it.
   (agent-shell-math-renderer-tests--enabled
     (agent-shell-math-renderer-tests--with-frame
       (let ((callbacks nil)
@@ -1901,7 +1896,6 @@ LATEX is an equation's delimited text; each run is (START . END)."
   ;; An equation in a table is not drawn on the table's text: the table
   ;; is laid out again from its source with the image on the whole
   ;; equation, and the source keeps the image for a later re-layout.
-  (skip-unless (fboundp 'agent-shell-markdown-table-at))
   (agent-shell-math-renderer-tests--enabled
     (agent-shell-math-renderer-tests--with-frame
       (cl-letf (((symbol-function 'latex-to-svg-backend)
@@ -1929,7 +1923,6 @@ LATEX is an equation's delimited text; each run is (START . END)."
 (ert-deftest agent-shell-math-renderer-table-image-after-compile ()
   ;; An uncached equation stays text in the laid-out table; when its
   ;; compile ends, the table is laid out again with its image.
-  (skip-unless (fboundp 'agent-shell-markdown-table-at))
   (agent-shell-math-renderer-tests--enabled
     (agent-shell-math-renderer-tests--with-frame
       (let ((callbacks nil)
@@ -1957,7 +1950,6 @@ LATEX is an equation's delimited text; each run is (START . END)."
 (ert-deftest agent-shell-math-renderer-table-refresh-lays-out-again ()
   ;; A refresh (a theme or font change) lays a table out again instead
   ;; of drawing on its text.
-  (skip-unless (fboundp 'agent-shell-markdown-table-at))
   (agent-shell-math-renderer-tests--enabled
     (agent-shell-math-renderer-tests--with-frame
       (let ((overlaid nil))
