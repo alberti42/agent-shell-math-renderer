@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - An equation in a table is drawn once and the table's columns fit it,
-  with agent-shell 0.93.2 or newer, which has
-  `agent-shell-markdown-table-at` and `agent-shell-markdown-rerender-table`
-  (xenodium/agent-shell#938).
+  with an agent-shell that has `agent-shell-markdown-table-at` and
+  `agent-shell-markdown-rerender-table` (xenodium/agent-shell#938; in no
+  tagged release yet, 0.93.2 included).
   agent-shell lays out a table before the equations' images exist, so
   the columns were sized for the LaTeX source, and an equation wrapped
   onto two lines showed its image on each. The package now lays the

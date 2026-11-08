@@ -1729,8 +1729,8 @@ out again with the images of its equations (see
   "Non-nil when POS in BUFFER is in a table agent-shell laid out.
 Nil when this agent-shell cannot lay out a table again from a given
 source (`agent-shell-markdown-rerender-table' and
-`agent-shell-markdown-table-at', agent-shell 0.93.2): equations in
-tables are then drawn where they are, as elsewhere."
+`agent-shell-markdown-table-at', xenodium/agent-shell#938): equations
+in tables are then drawn where they are, as elsewhere."
   (and (fboundp 'agent-shell-markdown-table-at)
        (with-current-buffer buffer
          (agent-shell-markdown-table-at pos))))
