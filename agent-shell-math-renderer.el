@@ -7,7 +7,7 @@
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; URL: https://github.com/alberti42/agent-shell-math-renderer
 ;; Version: 0.18.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.89.4") (latex-to-svg-backend "0.19.0"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.93.3") (latex-to-svg-backend "0.19.0"))
 ;; Keywords: tex, llm, math, education
 
 ;; This package is free software; you can redistribute it and/or modify
@@ -116,6 +116,30 @@ Update %s to %s or newer, then restart Emacs"
              'latex-to-svg-backend agent-shell-math-renderer--backend-version))))
 
 (agent-shell-math-renderer--check-backend-version)
+
+(defconst agent-shell-math-renderer--agent-shell-version "0.93.3"
+  "The oldest `agent-shell' this package works with.
+The same version as in the `Package-Requires' header.")
+
+(defun agent-shell-math-renderer--check-agent-shell ()
+  "Signal an error if the loaded agent-shell is older than this package needs.
+agent-shell keeps its version in a private constant, so the test is
+whether `agent-shell-markdown-table-at' and
+`agent-shell-markdown-rerender-table', which came in agent-shell 0.93.3,
+are defined.  Called when this file is loaded."
+  (when-let* ((missing (seq-remove #'fboundp
+                                   '(agent-shell-markdown-table-at
+                                     agent-shell-markdown-rerender-table))))
+    (error "%s %s needs %s %s or newer, but the %s Emacs loaded from %s \
+lacks `%s'.  Update %s to %s or newer, then restart Emacs"
+           'agent-shell-math-renderer agent-shell-math-renderer-version
+           'agent-shell agent-shell-math-renderer--agent-shell-version
+           'agent-shell
+           (or (symbol-file 'agent-shell-mode 'defun) "an unknown file")
+           (car missing)
+           'agent-shell agent-shell-math-renderer--agent-shell-version)))
+
+(agent-shell-math-renderer--check-agent-shell)
 
 (defgroup agent-shell-math-renderer nil
   "Render LaTeX math in agent-shell's streamed markdown output.

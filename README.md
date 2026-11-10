@@ -84,12 +84,15 @@ inline equation in a heading has the heading's color and size.
 ## Requirements
 
 - **Emacs 29.1+**
-- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.89.4 or newer —
-  the release that leaves the text after a render function's watermark
-  untouched for the rest of the chunk; `agent-shell-prompt-ranges`, which
-  finds the prompts of a restored session, the backslash-escape pass, the
-  right-label render-function suppression the hook relies on, and the
-  `session-restored` event came in earlier releases)
+- **[`agent-shell`](https://github.com/xenodium/agent-shell)** (0.93.3 or newer —
+  the release that lays a table out again with the equations' images,
+  through `agent-shell-markdown-table-at` and
+  `agent-shell-markdown-rerender-table`; the text after a render
+  function's watermark left untouched for the rest of the chunk,
+  `agent-shell-prompt-ranges`, which finds the prompts of a restored
+  session, the backslash-escape pass, the right-label render-function
+  suppression the hook relies on, and the `session-restored` event came
+  in earlier releases)
 - **[`latex-to-svg-backend`](https://github.com/alberti42/latex-to-svg-backend)** 0.19.0
   or newer (the release that compiles a failed equation again after an update of TeX, texres or RaTeX; the texres engine that keeps the right side of an equation wider than the `varwidth` box, the option names and the file list the README uses, and the version constant this package checks when it is loaded came in earlier releases) — the backend (equation compile, caching, display-time tint/scale)
   is factored out into this standalone library. All typesetting knobs (LaTeX /

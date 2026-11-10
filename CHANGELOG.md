@@ -17,10 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Requires the agent-shell release that has `agent-shell-markdown-table-at`
-  and `agent-shell-markdown-rerender-table` (xenodium/agent-shell#938),
-  which lay a table out again with the equations' images. No tagged
-  release has them yet; 0.93.2 does not.
+- Requires agent-shell 0.93.3 or newer, the release that has
+  `agent-shell-markdown-table-at` and `agent-shell-markdown-rerender-table`
+  (xenodium/agent-shell#938), which lay a table out again with the
+  equations' images. Loading the package with an older agent-shell
+  signals an error that names the file Emacs loaded agent-shell from and
+  the version to update to. Before, the equations stayed raw and each
+  render logged `void-function agent-shell-markdown-table-at` in
+  `*Messages*`.
 
 ## [0.18.0] - 2026-11-07
 

@@ -2594,12 +2594,15 @@ With SENT, end INPUT with shell-maker's end-of-prompt marker."
 (ert-deftest agent-shell-math-renderer-version-constants-match-the-headers ()
   ;; Drift guard: `agent-shell-math-renderer-version' is the `Version:'
   ;; header, and `--backend-version' the backend's floor in
-  ;; `Package-Requires'.
+  ;; `Package-Requires', `--agent-shell-version' agent-shell's.
   (should (equal agent-shell-math-renderer-version
                  (agent-shell-math-renderer-tests--header "version")))
   (should (equal agent-shell-math-renderer--backend-version
                  (agent-shell-math-renderer-tests--required-version
-                  'latex-to-svg-backend))))
+                  'latex-to-svg-backend)))
+  (should (equal agent-shell-math-renderer--agent-shell-version
+                 (agent-shell-math-renderer-tests--required-version
+                  'agent-shell))))
 
 (ert-deftest agent-shell-math-renderer-readme-requirements-match-the-header ()
   ;; Drift guard: the README's requirement lines name the floors in
@@ -2656,6 +2659,27 @@ newer, then restart Emacs\\'"
                "loaded a version older than 0\\.16\\.1 from "
                (cadr (should-error
                       (agent-shell-math-renderer--check-backend-version))))))))
+
+(ert-deftest agent-shell-math-renderer-check-agent-shell ()
+  "`agent-shell-math-renderer--check-agent-shell' signals an error when
+the loaded agent-shell lacks the table functions."
+  (let ((agent-shell-math-renderer-version "0.19.0")
+        (agent-shell-math-renderer--agent-shell-version "0.93.3")
+        (text-quoting-style 'grave))
+    (agent-shell-math-renderer--check-agent-shell)
+    (cl-letf (((symbol-function 'agent-shell-markdown-table-at) nil))
+      (should (string-match-p
+               "\\`agent-shell-math-renderer 0\\.19\\.0 needs agent-shell \
+0\\.93\\.3 or newer, but the agent-shell Emacs loaded from .+ lacks \
+`agent-shell-markdown-table-at'\\.  Update agent-shell to 0\\.93\\.3 or \
+newer, then restart Emacs\\'"
+               (cadr (should-error
+                      (agent-shell-math-renderer--check-agent-shell))))))
+    (cl-letf (((symbol-function 'agent-shell-markdown-rerender-table) nil))
+      (should (string-match-p
+               "lacks `agent-shell-markdown-rerender-table'"
+               (cadr (should-error
+                      (agent-shell-math-renderer--check-agent-shell))))))))
 
 (provide 'agent-shell-math-renderer-tests)
 
