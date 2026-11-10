@@ -29,7 +29,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A commit pushed to develop and then to main starts this workflow twice.
+  # This job waits for the earlier run of the same commit and, when that
+  # run succeeded, `check' and `emacs-faces' are skipped; see
+  # .github/scripts/skip-if-passed.sh.  On a pull request they always run.
+  #
+  # The run on develop installed the backend from its develop branch, and
+  # the run on main would install it from MELPA.  At a release the two hold
+  # the same backend, and `release-check', which is not skipped, checks
+  # that MELPA Stable has the backend the header requires.
+  skip:
+    name: Earlier run of this commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 30
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/skip-if-passed.sh ci.yml
+
   check:
+    needs: skip
+    if: needs.skip.outputs.skip != 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -139,6 +168,8 @@ jobs:
   # compares them with the copy and prints a diff when they differ.  A
   # change in Emacs is no failure of this package, so the job may fail.
   emacs-faces:
+    needs: skip
+    if: needs.skip.outputs.skip != 'true'
     runs-on: ubuntu-latest
     name: Emacs faces.el vs. our copy
     continue-on-error: true
